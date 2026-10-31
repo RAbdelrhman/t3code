@@ -66,6 +66,21 @@ notification; Android adds orientation and toggling the network. The drawer
 only shows what the platform can do, and every control reflects the value read
 back from the device after a change.
 
+## Showcase videos
+
+**Showcase** turns a screen recording or screenshot of your app into a short
+promo clip: the app plays on a 3D MacBook Pro, Dell XPS, iPhone or iPad while a
+camera moves through the shots you pick. It needs no simulator, so it works
+before device setup; open it from the device list, or from **Showcase** in the
+setup dialog.
+
+Drop a video or image on the stage, or choose **Screen**. Pick shots in the
+order they should play; the numbers show the cut. **Lid open** is only offered
+for laptops. **Export video** renders the cut frame by frame at the chosen
+aspect ratio and downloads an MP4, so the clip comes out smooth even on a slow
+machine. Recordings in a different shape from the device's screen are cropped to
+fill it, never stretched.
+
 ## Agents and devices
 
 When an agent opens a device, it floats over the chat in web and desktop clients

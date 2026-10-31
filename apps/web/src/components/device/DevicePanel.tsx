@@ -5,7 +5,8 @@ import type {
   DeviceSummary,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { ArrowUpRight, CircleAlert, Play, Smartphone, X } from "lucide-react";
+import { ArrowUpRight, CircleAlert, Clapperboard, Play, Smartphone, X } from "lucide-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useAtomMount } from "@effect/atom-react";
 import { type ReactNode, useState } from "react";
 
@@ -31,6 +32,8 @@ import {
 import { formatEnvironmentQueryError } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { DeviceLoadingView } from "./DeviceLoadingView";
+import { DeviceShowcase } from "./DeviceShowcase";
+import { useShowcaseStore } from "./showcaseStore";
 import { DeviceSetup, deviceHubReadiness, isAndroidDiscoveryUncertain } from "./DeviceSetup";
 import { DeviceWorkspace } from "./DeviceWorkspace";
 import { PreviewPanelShell, type PreviewPanelMode } from "../preview/PreviewPanelShell";
@@ -66,6 +69,10 @@ export function DevicePanel(props: {
   const pendingDeviceKey = pendingDevice ? deviceKey(pendingDevice) : null;
 
   const hostDisabled = state.hostStatus === "disabled";
+  // Showcase renders locally and needs no device host, so it opens even before device setup.
+  const threadKey = scopedThreadKey(props.threadRef);
+  const showcase = useShowcaseStore((store) => store.byThreadKey[threadKey]);
+  const openShowcase = () => useShowcaseStore.getState().open(threadKey);
 
   useAtomMount(
     props.visible && loaded && !hostDisabled
@@ -187,6 +194,18 @@ export function DevicePanel(props: {
       .map((platform) => ({ ...platform, hostId: host.id, hostLabel: host.label })),
   );
 
+  if (showcase && !activeDevice) {
+    return (
+      <PreviewPanelShell mode={props.mode}>
+        <DeviceShowcase
+          script={showcase.script}
+          scriptNonce={showcase.nonce}
+          onClose={() => useShowcaseStore.getState().close(threadKey)}
+        />
+      </PreviewPanelShell>
+    );
+  }
+
   if (loaded && (!state.onboardingCompleted || hostDisabled)) {
     return (
       <Dialog
@@ -196,7 +215,7 @@ export function DevicePanel(props: {
         }}
       >
         <WizardPopup>
-          <DeviceSetup environmentId={environmentId} state={state} />
+          <DeviceSetup environmentId={environmentId} state={state} onShowcase={openShowcase} />
         </WizardPopup>
       </Dialog>
     );
@@ -354,16 +373,26 @@ export function DevicePanel(props: {
                     then refresh.
                   </p>
                 ) : null}
-                {loaded && !hostBusy ? (
-                  <Button
-                    className={grouped.length > 0 ? "self-start" : "self-center"}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void list({ environmentId, input: {} })}
-                  >
-                    Refresh devices
+                <div
+                  className={cn(
+                    "flex flex-wrap gap-2",
+                    grouped.length > 0 ? "self-start" : "self-center",
+                  )}
+                >
+                  {loaded && !hostBusy ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void list({ environmentId, input: {} })}
+                    >
+                      Refresh devices
+                    </Button>
+                  ) : null}
+                  <Button variant="outline" size="sm" onClick={openShowcase}>
+                    <Clapperboard />
+                    Showcase
                   </Button>
-                ) : null}
+                </div>
               </div>
             </div>
           )}

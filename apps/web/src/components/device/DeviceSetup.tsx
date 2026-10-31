@@ -1,6 +1,6 @@
 import { DeviceHostUpdates } from "./DeviceHostUpdates";
 import type { DevicePlatform, DeviceServiceState, EnvironmentId } from "@t3tools/contracts";
-import { Check } from "lucide-react";
+import { Check, Clapperboard } from "lucide-react";
 import { Check as CheckGlyph, CircleAlert } from "lucide";
 import { AuthSettingsWriteScope } from "@t3tools/contracts";
 import { useAtomMount } from "@effect/atom-react";
@@ -130,6 +130,8 @@ export function DeviceSetup(props: {
   readonly environmentId: EnvironmentId;
   readonly state: DeviceServiceState;
   readonly onComplete?: () => void;
+  /** Showcase needs no device host, so setup offers it as a way out. */
+  readonly onShowcase?: () => void;
 }) {
   const canConfigure = useEnvironmentScope(props.environmentId, AuthSettingsWriteScope);
   const configure = useAtomCommand(deviceEnvironment.configure);
@@ -239,7 +241,16 @@ export function DeviceSetup(props: {
         ) : null}
       </WizardPanel>
 
-      <WizardFooter>
+      <WizardFooter
+        leading={
+          props.onShowcase ? (
+            <Button variant="ghost" onClick={props.onShowcase}>
+              <Clapperboard />
+              Showcase
+            </Button>
+          ) : undefined
+        }
+      >
         {step === 0 ? (
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
         ) : (
