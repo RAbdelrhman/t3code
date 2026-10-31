@@ -5,7 +5,9 @@ import {
   DeviceToolListResult,
   DeviceToolOpenInput,
   DeviceToolOpenResult,
+  DeviceShowcaseScript,
   DeviceToolScreenshotResult,
+  DeviceToolShowcaseResult,
   DeviceToolTargetInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -82,6 +84,21 @@ export const DeviceScreenshotTool = Tool.make("device_screenshot", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
 
+const DeviceShowcaseTool = Tool.make("device_showcase", {
+  description:
+    "Open the Showcase studio in the user's Device panel: a 3D laptop, phone or tablet with a cinematic camera, for app promo videos. Pass the device, shots in order, backdrop and aspect; omitted choices keep the studio's current value. Needs no simulator. The user adds their screen recording and exports the MP4.",
+  parameters: DeviceShowcaseScript,
+  success: DeviceToolShowcaseResult,
+  failure: DeviceToolFailure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Open showcase")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  // Each call publishes a new request, which can reopen a studio the user closed.
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
 const DeviceCloseTool = Tool.make("device_close", {
   description:
     "Remove a device from this thread's Device panel. `shutdown=true` also turns it off.",
@@ -96,7 +113,12 @@ const DeviceCloseTool = Tool.make("device_close", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
 
-export const DeviceStandardToolkit = Toolkit.make(DeviceListTool, DeviceOpenTool, DeviceCloseTool);
+export const DeviceStandardToolkit = Toolkit.make(
+  DeviceListTool,
+  DeviceOpenTool,
+  DeviceShowcaseTool,
+  DeviceCloseTool,
+);
 
 export const DeviceScreenshotToolkit = Toolkit.make(DeviceScreenshotTool);
 
@@ -104,5 +126,6 @@ export const DeviceToolkit = Toolkit.make(
   DeviceListTool,
   DeviceOpenTool,
   DeviceScreenshotTool,
+  DeviceShowcaseTool,
   DeviceCloseTool,
 );

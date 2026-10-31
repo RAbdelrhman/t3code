@@ -15,6 +15,7 @@ import {
   DevicePlatformUnavailableError,
   type DeviceServiceState,
   type DeviceSession,
+  type DeviceShowcaseScript,
   type DeviceShutdownInput,
   type DeviceSummary,
   type DeviceEasAccount,
@@ -78,6 +79,9 @@ import * as Exit from "effect/Exit";
 import * as LocalDeviceHost from "./LocalDeviceHost.ts";
 
 export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
+
+/** Showcase requests kept in device state; every state update carries them to every client. */
+const MAX_SHOWCASE_REQUESTS = 16;
 
 const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
   const cause = error.cause;
@@ -228,6 +232,8 @@ export class DeviceService extends Context.Service<
     ) => Effect.Effect<DeviceAgentReadiness | null, DeviceError>;
     readonly currentReadiness: (hostId?: DeviceHostId) => Effect.Effect<DeviceReadiness | null>;
     readonly sessionsForThread: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<DeviceSession>>;
+    /** Asks this thread's clients to open the Showcase studio with `script`. Needs no device host. */
+    readonly showcase: (threadId: ThreadId, script: DeviceShowcaseScript) => Effect.Effect<void>;
   }
 >()("t3/device/DeviceService") {}
 
@@ -989,6 +995,23 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
     },
   );
 
+  let showcaseRequests = 0;
+  const showcase: DeviceService["Service"]["showcase"] = Effect.fn("DeviceService.showcase")(
+    function* (threadId, script) {
+      const requestedAt = DateTime.formatIso(yield* DateTime.now);
+      const requestId = ++showcaseRequests;
+      // Clients act on a request once, when it first appears, so only recent ones need to travel:
+      // one per thread, and no more than MAX_SHOWCASE_REQUESTS in every state update.
+      yield* publish((state) => ({
+        ...state,
+        showcases: [
+          ...(state.showcases ?? []).filter((request) => request.threadId !== threadId),
+          { threadId, requestId, requestedAt, script },
+        ].slice(-MAX_SHOWCASE_REQUESTS),
+      }));
+    },
+  );
+
   const sessionsForThread: DeviceService["Service"]["sessionsForThread"] = (threadId) =>
     SynchronizedRef.get(stateRef).pipe(
       Effect.map(({ state }) => state.sessions.filter((session) => session.threadId === threadId)),
@@ -1190,6 +1213,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       agentReadinessIfSupported,
       currentReadiness,
       sessionsForThread,
+      showcase,
     }),
     setHostStatus,
     withLifecycleLock: lifecycleLock.withPermit,

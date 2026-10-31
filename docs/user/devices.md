@@ -101,6 +101,11 @@ taps build a small test runner on first use, which takes a couple of minutes
 once per server. Restart an existing agent session after granting access so it
 receives the device CLI environment.
 
+Ask an agent for a promo video and it can open **Showcase** in the thread's
+Device panel with the device, shots, backdrop and aspect ratio already chosen.
+You add the recording and export it. This uses the same **Agents can use
+devices** permission but starts no simulator.
+
 To keep agents away from simulators, turn off **Agents can use devices** in
 **Settings → Devices**. This hides the device tools from agents
 started from then on; your own Device panel is unaffected.

@@ -1,20 +1,8 @@
-import type { ShowcaseShotId } from "@t3tools/client-runtime/device/showcase/cinematic";
-import type { LaptopFinish } from "@t3tools/client-runtime/device/showcase/laptop-scene";
-import type {
-  ShowcaseAspectId,
-  ShowcaseBackdropId,
-} from "@t3tools/client-runtime/device/showcase/showcase-output";
+import type { DeviceShowcaseScript } from "@t3tools/contracts";
 import { create } from "zustand";
-import type { ShowcaseDeviceId } from "./showcaseStudio";
 
 /** Starting choices for a showcase; anything omitted keeps the studio's current value. */
-export interface ShowcaseScript {
-  readonly device?: ShowcaseDeviceId;
-  readonly finish?: LaptopFinish;
-  readonly shots?: ReadonlyArray<ShowcaseShotId>;
-  readonly backdrop?: ShowcaseBackdropId;
-  readonly aspect?: ShowcaseAspectId;
-}
+export type ShowcaseScript = DeviceShowcaseScript;
 
 interface ShowcaseRequest {
   readonly script: ShowcaseScript;

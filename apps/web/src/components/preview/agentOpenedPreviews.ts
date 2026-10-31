@@ -27,6 +27,7 @@ import { useRightPanelStore } from "../../rightPanelStore";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { deviceEnvironment } from "../../state/device";
+import { useShowcaseStore } from "../device/showcaseStore";
 import { readEnvironmentSupportsServerBrowser } from "../../state/entities";
 import { environmentSummaries } from "../../state/presentation";
 
@@ -165,6 +166,8 @@ export function applyDeviceSnapshot(
       miniPlayer.close(ref);
   }
 
+  applyShowcaseSnapshot(environmentId, state, options.sheetLayout);
+
   const previous = deviceSessionBaselines.get(environmentId);
   deviceSessionBaselines.set(
     environmentId,
@@ -199,6 +202,30 @@ export function applyDeviceSnapshot(
   }
 }
 
+const showcaseKey = (request: NonNullable<DeviceServiceState["showcases"]>[number]) =>
+  `${request.threadId}:${request.requestedAt}:${request.requestId}`;
+
+/** Per environment: the Showcase requests seen in the last snapshot, with the same baseline rule as sessions. */
+const showcaseBaselines = new Map<EnvironmentId, ReadonlySet<string>>();
+
+/** A Showcase an agent asks for opens in its thread's Device panel, once per request. */
+function applyShowcaseSnapshot(
+  environmentId: EnvironmentId,
+  state: DeviceServiceState,
+  sheetLayout: boolean,
+): void {
+  const requests = state.showcases ?? [];
+  const previous = showcaseBaselines.get(environmentId);
+  showcaseBaselines.set(environmentId, new Set(requests.map(showcaseKey)));
+  if (!previous) return;
+  for (const request of requests) {
+    if (previous.has(showcaseKey(request))) continue;
+    const threadRef = scopeThreadRef(environmentId, request.threadId);
+    useShowcaseStore.getState().open(scopedThreadKey(threadRef), request.script);
+    if (!sheetLayout) useRightPanelStore.getState().open(threadRef, "device");
+  }
+}
+
 /**
  * Floats a device panel tab over chat. A tab whose device session already
  * ended has nothing to stream, so it only closes the panel. Before the first
@@ -214,6 +241,7 @@ export function floatDeviceSurface(
 }
 
 export function resetDeviceSessionBaselinesForTests(): void {
+  showcaseBaselines.clear();
   deviceSessionBaselines.clear();
 }
 

@@ -255,7 +255,57 @@ export const DeviceHostStatuses = Schema.Record(
   }),
 );
 
+export const DeviceShowcaseDevice = Schema.Literals([
+  "macbook-pro-14",
+  "dell-xps-14",
+  "iphone-18-pro",
+  "ipad-pro-13-m5",
+]);
+export const DeviceShowcaseShot = Schema.Literals([
+  "hero-reveal",
+  "lid-open",
+  "push-in",
+  "orbit",
+  "turntable",
+  "low-sweep",
+  "float",
+]);
+
+/** Starting choices for the Showcase studio. Omitted fields keep the studio's current value. */
+export const DeviceShowcaseScript = Schema.Struct({
+  device: Schema.optional(
+    DeviceShowcaseDevice.annotate({ description: "Device to frame. Default macbook-pro-14." }),
+  ),
+  finish: Schema.optional(
+    Schema.Literals(["dark", "light"]).annotate({ description: "Laptop finish." }),
+  ),
+  shots: Schema.optional(
+    Schema.Array(DeviceShowcaseShot).check(Schema.isMinLength(1), Schema.isMaxLength(8)).annotate({
+      description:
+        "Camera shots, cut in this order. lid-open is laptop-only. Default lid-open then push-in.",
+    }),
+  ),
+  backdrop: Schema.optional(Schema.Literals(["graphite", "paper", "dusk", "ember"])),
+  aspect: Schema.optional(
+    Schema.Literals(["landscape", "square", "portrait", "story"]).annotate({
+      description: "16:9, 1:1, 4:5 or 9:16 output.",
+    }),
+  ),
+});
+export type DeviceShowcaseScript = typeof DeviceShowcaseScript.Type;
+
+export const DeviceShowcaseRequest = Schema.Struct({
+  threadId: ThreadId,
+  /** Unique per request on this server, so two in one millisecond are both seen. */
+  requestId: Schema.Int,
+  requestedAt: Schema.String,
+  script: DeviceShowcaseScript,
+});
+export type DeviceShowcaseRequest = typeof DeviceShowcaseRequest.Type;
+
 const deviceServiceStateFields = {
+  /** The latest Showcase an agent asked each thread to open. Servers from before Showcase omit it. */
+  showcases: Schema.optional(Schema.Array(DeviceShowcaseRequest)),
   supportsHostRetry: Schema.optional(Schema.Boolean),
   supportsToolUpdate: Schema.optional(Schema.Boolean),
   supportsToolInspection: Schema.optional(Schema.Boolean),
@@ -681,6 +731,12 @@ export const DeviceToolScreenshotResult = Schema.Struct({
   }),
 });
 export type DeviceToolScreenshotResult = typeof DeviceToolScreenshotResult.Type;
+
+export const DeviceToolShowcaseResult = Schema.Struct({
+  script: DeviceShowcaseScript,
+  message: Schema.String,
+});
+export type DeviceToolShowcaseResult = typeof DeviceToolShowcaseResult.Type;
 
 export const DeviceToolCloseInput = Schema.Struct({
   deviceId: Schema.optional(
