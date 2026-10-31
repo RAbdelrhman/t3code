@@ -467,6 +467,22 @@
       "types": "./src/device/duoControl.ts",
       "default": "./src/device/duoControl.ts"
     },
+    "./device/showcase/cinematic": {
+      "types": "./src/device/showcase/cinematic.ts",
+      "default": "./src/device/showcase/cinematic.ts"
+    },
+    "./device/showcase/laptop-scene": {
+      "types": "./src/device/showcase/laptopScene.ts",
+      "default": "./src/device/showcase/laptopScene.ts"
+    },
+    "./device/showcase/showcase-output": {
+      "types": "./src/device/showcase/showcaseOutput.ts",
+      "default": "./src/device/showcase/showcaseOutput.ts"
+    },
+    "./device/showcase/showcase-renderer": {
+      "types": "./src/device/showcase/showcaseRenderer.ts",
+      "default": "./src/device/showcase/showcaseRenderer.ts"
+    },
     "./diff-count": {
       "types": "./src/diffCount.ts",
       "default": "./src/diffCount.ts"
@@ -540,6 +556,7 @@
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
     "jszip": "3.10.1",
+    "mediabunny": "1.62.1",
     "three": "0.180.0"
   },
   "devDependencies": {

@@ -5,12 +5,14 @@ import type {
   ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { DeviceSetup } from "../device/DeviceSetup";
+import { useShowcaseStore } from "../device/showcaseStore";
 import { PullRequestThreadDialog } from "../PullRequestThreadDialog";
 import {
   AlertDialog,
@@ -121,6 +123,11 @@ export function DeviceSetupDialogHost(props: {
             environmentId={threadRef.environmentId}
             state={props.state}
             onComplete={() => {
+              useRightPanelStore.getState().open(threadRef, "device");
+              closeThreadOverlay(deviceSetupDialogAtom);
+            }}
+            onShowcase={() => {
+              useShowcaseStore.getState().open(scopedThreadKey(threadRef));
               useRightPanelStore.getState().open(threadRef, "device");
               closeThreadOverlay(deviceSetupDialogAtom);
             }}
