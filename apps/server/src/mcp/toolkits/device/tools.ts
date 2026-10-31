@@ -95,7 +95,8 @@ const DeviceShowcaseTool = Tool.make("device_showcase", {
   .annotate(Tool.Title, "Open showcase")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
-  .annotate(Tool.Idempotent, true)
+  // Each call publishes a new request, which can reopen a studio the user closed.
+  .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
 const DeviceCloseTool = Tool.make("device_close", {
