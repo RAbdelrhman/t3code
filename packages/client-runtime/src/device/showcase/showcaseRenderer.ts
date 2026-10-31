@@ -233,7 +233,7 @@ export function createShowcaseRenderer(options: {
   };
 
   /** Changes asked for mid-export, applied once it ends so the clip never switches partway. */
-  const deferred = new Map<"device" | "timeline" | "backdrop", () => void>();
+  const deferred = new Map<"device" | "timeline" | "backdrop" | "source", () => void>();
 
   const setDevice = (device: ShowcaseDevice) => {
     if (recording) {
@@ -484,6 +484,10 @@ export function createShowcaseRenderer(options: {
   return {
     setDevice,
     setSource(next: ShowcaseScreenSource) {
+      if (recording) {
+        deferred.set("source", () => this.setSource(next));
+        return;
+      }
       source = next;
       const previous = texture;
       texture = makeScreenTexture(next);
@@ -524,7 +528,9 @@ export function createShowcaseRenderer(options: {
     get playing() {
       return playing;
     },
+    // The export drives time itself; playback calls from the page wait until it ends.
     seek(timeMs: number) {
+      if (recording) return;
       time = Math.min(timeline.duration, Math.max(0, timeMs));
       if (
         source instanceof HTMLVideoElement &&
@@ -535,8 +541,12 @@ export function createShowcaseRenderer(options: {
       render();
       options.onTime?.(time, playing);
     },
-    play,
-    pause,
+    play: () => {
+      if (!recording) play();
+    },
+    pause: () => {
+      if (!recording) pause();
+    },
     resize(width: number, height: number, pixelRatio: number) {
       viewport = { width, height, pixelRatio };
       if (recording) return;

@@ -78,8 +78,9 @@ Drop a video or image on the stage, or choose **Screen**. Pick shots in the
 order they should play; the numbers show the cut. **Lid open** is only offered
 for laptops. **Export video** renders the cut frame by frame at the chosen
 aspect ratio and downloads an MP4, so the clip comes out smooth even on a slow
-machine. Recordings in a different shape from the device's screen are cropped to
-fill it, never stretched.
+machine. Browsers that cannot encode H.264 record the cut in real time instead,
+which can drop frames on a slow machine and may save a WebM. Recordings in a
+different shape from the device's screen are cropped to fill it, never stretched.
 
 ## Agents and devices
 

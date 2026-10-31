@@ -143,6 +143,8 @@ export function DeviceShowcase(props: {
   const sourceRef = useRef<ShowcaseScreenSource | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
+  /** The latest screen pick; an older file that finishes loading later is dropped. */
+  const screenPickRef = useRef(0);
   const busy = exporting !== null;
   const laptop = isLaptopShowcase(deviceId);
   // Lid open stays in the cut when switching to a phone, but only laptops show or play it.
@@ -158,22 +160,26 @@ export function DeviceShowcase(props: {
     let created: ShowcaseRenderer | null = null;
     let stopObserving: (() => void) | undefined;
     if (!sourceRef.current) sourceRef.current = placeholderScreen();
-    void loadShowcaseRenderer().then(({ createShowcaseRenderer }) => {
-      if (disposed) return;
-      created = createShowcaseRenderer({
-        canvas,
-        source: sourceRef.current!,
-        onTime: (at, playing) => setTime({ at, playing }),
-        onError: () => setError("The photoreal model failed to load; showing a simple body."),
+    void loadShowcaseRenderer()
+      .then(({ createShowcaseRenderer }) => {
+        if (disposed) return;
+        created = createShowcaseRenderer({
+          canvas,
+          source: sourceRef.current!,
+          onTime: (at, playing) => setTime({ at, playing }),
+          onError: () => setError("The photoreal model failed to load; showing a simple body."),
+        });
+        const host = canvas.parentElement!;
+        const resized = created;
+        stopObserving = observeResize(host, () => {
+          const { width, height } = host.getBoundingClientRect();
+          resized.resize(width, height, window.devicePixelRatio);
+        });
+        setRenderer(created);
+      })
+      .catch(() => {
+        if (!disposed) setError("Showcase could not start. It needs WebGL in this browser.");
       });
-      const host = canvas.parentElement!;
-      const resized = created;
-      stopObserving = observeResize(host, () => {
-        const { width, height } = host.getBoundingClientRect();
-        resized.resize(width, height, window.devicePixelRatio);
-      });
-      setRenderer(created);
-    });
     return () => {
       disposed = true;
       exportAbortRef.current?.abort();
@@ -207,21 +213,30 @@ export function DeviceShowcase(props: {
   }, [renderer, backdrop]);
 
   const pickScreen = (file: File | undefined) => {
-    if (!file) return;
+    // Dropping a file mid-export would swap the screen partway through the clip.
+    if (!file || busy) return;
     if (!file.type.startsWith("video/") && !file.type.startsWith("image/")) {
       setError("Use a video or image file.");
       return;
     }
     setError(null);
+    const pick = ++screenPickRef.current;
     loadScreenFile(file).then(
       (source) => {
+        if (pick !== screenPickRef.current) {
+          releaseScreen(source);
+          return;
+        }
         const previous = sourceRef.current;
         sourceRef.current = source;
         renderer?.setSource(source);
         renderer?.seek(0);
         releaseScreen(previous);
       },
-      (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
+      (cause: unknown) => {
+        if (pick === screenPickRef.current)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      },
     );
   };
 
