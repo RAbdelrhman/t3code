@@ -302,6 +302,18 @@ const handlers = {
       };
     }).pipe(Effect.mapError(toolError)),
   ),
+  device_showcase: McpToolAccess.actsAsCaller((script) =>
+    Effect.gen(function* () {
+      const scope = yield* requireDeviceAccess;
+      const devices = yield* DeviceService.DeviceService;
+      yield* devices.showcase(scope.thread.threadId, script);
+      return {
+        script,
+        message:
+          "The Showcase studio is open in the user's Device panel with these choices. The user drops in a screen recording or screenshot and clicks Export video for an MP4. Call device_showcase again to change the shots, device, backdrop or aspect.",
+      };
+    }).pipe(Effect.mapError(toolError)),
+  ),
   device_close: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* requireDeviceAccess;

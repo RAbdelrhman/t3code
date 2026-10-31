@@ -8,6 +8,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/ai";
@@ -112,6 +113,7 @@ const openSession = {
   platform: "ios" as const,
   openedAt: "2026-09-08T00:00:00.000Z",
 };
+const showcaseRequests: Array<{ threadId: string; script: unknown }> = [];
 const layerDeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
   state: Effect.succeed(state),
   list: Effect.succeed(state),
@@ -134,6 +136,10 @@ const layerDeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
     ),
   screenshot: () => Effect.succeed({ device, png }),
   close: () => Effect.void,
+  showcase: (id, script) =>
+    Effect.sync(() => {
+      showcaseRequests.push({ threadId: id, script });
+    }),
   testHost: () => Effect.die("not used"),
   // As for an EAS device, agent-device knows the device by a different id than T3.
   agentTarget: () =>
@@ -155,12 +161,47 @@ const layerTest = McpHttpServer.layerDeviceToolkit.pipe(
   Layer.provide(NodeServices.layer),
 );
 
+it.effect("opens the showcase studio for the calling thread and rejects unknown shots", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const call = (args: Record<string, unknown>) =>
+        server
+          .callTool({ name: "device_showcase", arguments: args })
+          .pipe(
+            Effect.provideService(
+              McpInvocationContext.McpInvocationContext,
+              invocation(["device"]),
+            ),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+      showcaseRequests.length = 0;
+      const script = { device: "dell-xps-14", shots: ["lid-open", "orbit"], aspect: "story" };
+      const opened = yield* call(script);
+      expect(opened.isError).toBe(false);
+      expect(showcaseRequests).toEqual([{ threadId, script }]);
+      expect((opened.structuredContent as { message: string }).message).toContain("Export video");
+
+      // The MCP server rejects parameters outside the schema before the handler runs.
+      expect(Exit.isFailure(yield* Effect.exit(call({ shots: ["dolly-zoom"] })))).toBe(true);
+      expect(Exit.isFailure(yield* Effect.exit(call({ shots: [] })))).toBe(true);
+      expect(showcaseRequests).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("registers the device tools and returns the screenshot as image content", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const server = yield* McpServer.McpServer;
       const names = server.tools.map(({ tool }) => tool.name).toSorted();
-      expect(names).toEqual(["device_close", "device_list", "device_open", "device_screenshot"]);
+      expect(names).toEqual([
+        "device_close",
+        "device_list",
+        "device_open",
+        "device_screenshot",
+        "device_showcase",
+      ]);
 
       const callWith = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
         Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities));

@@ -1,5 +1,13 @@
+import { SHOWCASE_SHOTS } from "@t3tools/client-runtime/device/showcase/cinematic";
+import {
+  SHOWCASE_ASPECTS,
+  SHOWCASE_BACKDROPS,
+} from "@t3tools/client-runtime/device/showcase/showcase-output";
+import { DeviceShowcaseDevice, DeviceShowcaseScript, DeviceShowcaseShot } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  SHOWCASE_DEVICES,
   showcaseDevice,
   showcaseFileName,
   showcaseTimeline,
@@ -42,5 +50,22 @@ describe("showcase studio", () => {
     expect(showcaseFileName("macbook-pro-14", "mp4", new Date("2026-10-30T12:34:56Z"))).toBe(
       "showcase-macbook-pro-14-2026-10-30T12-34-56.mp4",
     );
+  });
+});
+
+describe("showcase contract", () => {
+  // Agents name devices and shots through the contract; the studio renders the runtime presets.
+  it("names exactly the devices, shots, backdrops and aspects the studio renders", () => {
+    expect([...DeviceShowcaseDevice.literals].toSorted()).toEqual(
+      SHOWCASE_DEVICES.map((device) => device.id).toSorted(),
+    );
+    expect([...DeviceShowcaseShot.literals].toSorted()).toEqual(
+      SHOWCASE_SHOTS.map((shot) => shot.id).toSorted(),
+    );
+    const decode = Schema.decodeUnknownSync(DeviceShowcaseScript);
+    for (const backdrop of Object.keys(SHOWCASE_BACKDROPS))
+      expect(() => decode({ backdrop })).not.toThrow();
+    for (const aspect of Object.keys(SHOWCASE_ASPECTS))
+      expect(() => decode({ aspect })).not.toThrow();
   });
 });

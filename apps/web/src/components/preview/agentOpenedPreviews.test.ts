@@ -18,6 +18,7 @@ import {
   resetPreviewStateForTests,
 } from "../../previewStateStore";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useShowcaseStore } from "../device/showcaseStore";
 import {
   applyDeviceSnapshot,
   floatDeviceSurface,
@@ -57,6 +58,7 @@ const deviceState = (input: {
     Omit<typeof session, "openedAt"> & { readonly openedAt: string }
   >;
   readonly devices?: ReadonlyArray<typeof device>;
+  readonly showcases?: DeviceServiceState["showcases"];
 }) =>
   ({
     hosts: [],
@@ -64,6 +66,7 @@ const deviceState = (input: {
     hostStatuses: {},
     devices: input.devices ?? [device],
     sessions: input.sessions ?? [],
+    ...(input.showcases ? { showcases: input.showcases } : {}),
     onboardingCompleted: true,
     agentAccessEnabled: true,
     hubBasePath: "/api/device-hub",
@@ -77,9 +80,43 @@ function setup() {
   resetDeviceSessionBaselinesForTests();
   usePreviewMiniPlayerStore.setState({ byThreadKey: {} });
   useRightPanelStore.setState({ byThreadKey: {} });
+  useShowcaseStore.setState({ byThreadKey: {} });
 }
 
 const miniPlayerSource = () => usePreviewMiniPlayerStore.getState().byThreadKey[threadKey]?.source;
+
+describe("agent showcase requests", () => {
+  const request = (requestedAt: string) => ({
+    threadId: ref.threadId,
+    requestedAt,
+    script: { device: "dell-xps-14" as const, shots: ["orbit" as const] },
+  });
+
+  it("opens the studio in the thread's Device panel for requests after the baseline, once each", () => {
+    setup();
+    applyDeviceSnapshot(
+      ref.environmentId,
+      deviceState({ showcases: [request("2026-10-30T00:00:00.000Z")] }),
+      floating,
+    );
+    // A request from before this client connected is not replayed.
+    expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeUndefined();
+
+    const next = deviceState({ showcases: [request("2026-10-30T00:01:00.000Z")] });
+    applyDeviceSnapshot(ref.environmentId, next, floating);
+    expect(useShowcaseStore.getState().byThreadKey[threadKey]?.script).toEqual({
+      device: "dell-xps-14",
+      shots: ["orbit"],
+    });
+    expect(
+      useRightPanelStore.getState().byThreadKey[threadKey]?.surfaces.map((surface) => surface.kind),
+    ).toEqual(["device"]);
+
+    useShowcaseStore.getState().close(threadKey);
+    applyDeviceSnapshot(ref.environmentId, next, floating);
+    expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeUndefined();
+  });
+});
 
 describe("applyDeviceSnapshot", () => {
   it("treats the first snapshot as a baseline and floats sessions that start later", () => {

@@ -271,6 +271,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "device",
     "device",
   ),
+  device_showcase: tool(["Open", "Opening", "Opened", "a device showcase"], "device", "device"),
   device_close: tool(["Close", "Closing", "Closed", "a device"], "device", "device"),
   run_scheduled_task_now: tool(
     ["Run", "Running", "Requested a run of", "a scheduled task"],
