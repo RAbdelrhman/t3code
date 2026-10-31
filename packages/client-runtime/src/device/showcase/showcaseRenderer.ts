@@ -232,7 +232,14 @@ export function createShowcaseRenderer(options: {
     };
   };
 
+  /** Changes asked for mid-export, applied once it ends so the clip never switches partway. */
+  const deferred = new Map<"device" | "timeline" | "backdrop", () => void>();
+
   const setDevice = (device: ShowcaseDevice) => {
+    if (recording) {
+      deferred.set("device", () => setDevice(device));
+      return;
+    }
     const request = ++deviceRequest;
     if (device.kind === "laptop") {
       const laptop = createLaptopScene(texture, LAPTOP_PROFILES[device.id], {
@@ -391,6 +398,7 @@ export function createShowcaseRenderer(options: {
     try {
       for (let index = 0; index <= count; index++) {
         output.signal?.throwIfAborted();
+        if (disposed) throw new Error("The showcase closed during export.");
         time = Math.min(timeline.duration, (index * 1000) / fps);
         await seekScreen(time / 1000);
         render();
@@ -485,6 +493,10 @@ export function createShowcaseRenderer(options: {
       render();
     },
     setBackdrop(id: ShowcaseBackdropId) {
+      if (recording) {
+        deferred.set("backdrop", () => this.setBackdrop(id));
+        return;
+      }
       if (id === backdropId) return;
       backdropId = id;
       backdrop.dispose();
@@ -493,6 +505,10 @@ export function createShowcaseRenderer(options: {
       render();
     },
     setTimeline(next: ShowcaseTimeline, nextLoop = true) {
+      if (recording) {
+        deferred.set("timeline", () => this.setTimeline(next, nextLoop));
+        return;
+      }
       timeline = compileTimeline(next);
       loop = nextLoop;
       const clamped = Math.min(time, timeline.duration);
@@ -555,6 +571,8 @@ export function createShowcaseRenderer(options: {
         if (source instanceof HTMLVideoElement) source.currentTime = 0;
         renderer.setPixelRatio(Math.min(viewport.pixelRatio, 2));
         renderer.setSize(viewport.width, viewport.height, false);
+        for (const apply of deferred.values()) apply();
+        deferred.clear();
         render();
         options.onTime?.(time, false);
       }

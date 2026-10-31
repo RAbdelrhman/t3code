@@ -78,9 +78,14 @@ function loadScreenFile(file: File): Promise<ShowcaseScreenSource> {
     video.src = url;
     return new Promise((resolve, reject) => {
       video.addEventListener("loadeddata", () => resolve(video), { once: true });
-      video.addEventListener("error", () => reject(new Error("That video could not be read.")), {
-        once: true,
-      });
+      video.addEventListener(
+        "error",
+        () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("That video could not be read."));
+        },
+        { once: true },
+      );
     });
   }
   const image = new Image();
@@ -88,9 +93,18 @@ function loadScreenFile(file: File): Promise<ShowcaseScreenSource> {
   return image.decode().then(
     () => image,
     () => {
+      URL.revokeObjectURL(url);
       throw new Error("That image could not be read.");
     },
   );
+}
+
+/** Stops a dropped recording and frees its blob; the placeholder canvas holds none. */
+function releaseScreen(source: ShowcaseScreenSource | null) {
+  if (source instanceof HTMLVideoElement) {
+    source.pause();
+    URL.revokeObjectURL(source.src);
+  } else if (source instanceof HTMLImageElement) URL.revokeObjectURL(source.src);
 }
 
 const formatSeconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
@@ -99,6 +113,8 @@ export function DeviceShowcase(props: {
   readonly script: ShowcaseScript;
   /** Changes when someone, often an agent, asks for this script again. */
   readonly scriptNonce: number;
+  /** Hidden studios stop drawing; the panel stays mounted behind other tabs. */
+  readonly visible: boolean;
   readonly onClose: () => void;
 }) {
   const { script } = props;
@@ -126,6 +142,11 @@ export function DeviceShowcase(props: {
   const [renderer, setRenderer] = useState<ShowcaseRenderer | null>(null);
   const sourceRef = useRef<ShowcaseScreenSource | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const busy = exporting !== null;
+  const laptop = isLaptopShowcase(deviceId);
+  // Lid open stays in the cut when switching to a phone, but only laptops show or play it.
+  const visibleShots = laptop ? shots : shots.filter((shot) => shot !== "lid-open");
   const timeline = showcaseTimeline(shots, deviceId);
   const duration = timelineDuration(timeline);
 
@@ -150,14 +171,15 @@ export function DeviceShowcase(props: {
         const { width, height } = host.getBoundingClientRect();
         resized.resize(width, height, window.devicePixelRatio);
       });
-      // The timeline loops, so playing before the first cut arrives is harmless.
-      created.play();
       setRenderer(created);
     });
     return () => {
       disposed = true;
+      exportAbortRef.current?.abort();
       stopObserving?.();
       created?.dispose();
+      releaseScreen(sourceRef.current);
+      sourceRef.current = null;
       setRenderer(null);
     };
   };
@@ -166,10 +188,17 @@ export function DeviceShowcase(props: {
   useEffect(() => {
     renderer?.setDevice(showcaseDevice(deviceId, finish));
   }, [renderer, deviceId, finish]);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the WebGL renderer playing the chosen cut
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the WebGL renderer on the chosen cut and plays it through once
   useEffect(() => {
-    renderer?.setTimeline(timeline);
-  }, [renderer, timeline]);
+    if (!renderer) return;
+    renderer.setTimeline(timeline, false);
+    renderer.seek(0);
+    if (props.visible) renderer.play();
+  }, [renderer, timeline, props.visible]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the WebGL render loop while the panel is hidden
+  useEffect(() => {
+    if (!props.visible) renderer?.pause();
+  }, [renderer, props.visible]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the WebGL renderer on the chosen backdrop
   useEffect(() => {
     renderer?.setBackdrop(backdrop);
@@ -188,23 +217,24 @@ export function DeviceShowcase(props: {
         sourceRef.current = source;
         renderer?.setSource(source);
         renderer?.seek(0);
-        if (previous instanceof HTMLVideoElement) {
-          previous.pause();
-          URL.revokeObjectURL(previous.src);
-        } else if (previous instanceof HTMLImageElement) URL.revokeObjectURL(previous.src);
+        releaseScreen(previous);
       },
       (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
     );
   };
 
   const exportClip = () => {
-    if (!renderer || exporting !== null) return;
+    if (!renderer || busy) return;
+    const abort = new AbortController();
+    exportAbortRef.current = abort;
     setExporting(0);
     setError(null);
     const { width, height } = SHOWCASE_ASPECTS[aspect];
     renderer
-      .record({ width, height, onProgress: setExporting })
+      .record({ width, height, signal: abort.signal, onProgress: setExporting })
       .then(({ blob, extension }) => {
+        // Closing the studio mid-export cancels the download too.
+        if (abort.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -214,14 +244,17 @@ export function DeviceShowcase(props: {
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
       })
-      .catch((cause: unknown) =>
-        setError(cause instanceof Error ? cause.message : "Export failed. Try again."),
-      )
-      .finally(() => setExporting(null));
+      .catch((cause: unknown) => {
+        if (!abort.signal.aborted)
+          setError(cause instanceof Error ? cause.message : "Export failed. Try again.");
+      })
+      .finally(() => {
+        if (exportAbortRef.current === abort) exportAbortRef.current = null;
+        setExporting(null);
+      });
   };
 
   const output = SHOWCASE_ASPECTS[aspect];
-  const laptop = isLaptopShowcase(deviceId);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -235,12 +268,12 @@ export function DeviceShowcase(props: {
           size="xs"
           variant="outline"
           onClick={() => fileInputRef.current?.click()}
-          disabled={exporting !== null}
+          disabled={busy}
         >
           <ImageUp />
           Screen
         </Button>
-        <Button size="xs" onClick={exportClip} disabled={exporting !== null || !renderer}>
+        <Button size="xs" onClick={exportClip} disabled={busy || !renderer}>
           {exporting !== null ? <Spinner size="xs" /> : <Download />}
           {exporting !== null ? `Exporting ${Math.round(exporting * 100)}%` : "Export video"}
         </Button>
@@ -296,7 +329,7 @@ export function DeviceShowcase(props: {
           size="icon-xs"
           variant="ghost"
           aria-label={time.playing ? "Pause" : "Play"}
-          disabled={exporting !== null}
+          disabled={busy}
           onClick={() => (time.playing ? renderer?.pause() : renderer?.play())}
         >
           {time.playing ? <Pause /> : <Play />}
@@ -309,7 +342,7 @@ export function DeviceShowcase(props: {
           max={Math.max(1, duration)}
           step={10}
           value={Math.min(time.at, duration)}
-          disabled={exporting !== null}
+          disabled={busy}
           onChange={(event) => {
             renderer?.pause();
             renderer?.seek(Number(event.target.value));
@@ -325,11 +358,13 @@ export function DeviceShowcase(props: {
             ariaLabel="Device"
             value={deviceId}
             options={SHOWCASE_DEVICES.map((device) => ({ value: device.id, label: device.label }))}
+            disabled={busy}
             onChange={setDeviceId}
           />
           {laptop ? (
             <ToggleGroup
               aria-label="Finish"
+              disabled={busy}
               value={[finish]}
               onValueChange={(value) => {
                 const next = value[0] as LaptopFinish | undefined;
@@ -347,6 +382,7 @@ export function DeviceShowcase(props: {
               value: value as ShowcaseBackdropId,
               label: entry.label,
             }))}
+            disabled={busy}
             onChange={setBackdrop}
           />
           <OptionSelect
@@ -356,20 +392,22 @@ export function DeviceShowcase(props: {
               value: value as ShowcaseAspectId,
               label: entry.label,
             }))}
+            disabled={busy}
             onChange={setAspect}
           />
         </div>
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Shots">
           <span className="mr-1 text-muted-foreground">Shots</span>
           {SHOWCASE_SHOTS.filter((shot) => shot.id !== "lid-open" || laptop).map((shot) => {
-            const order = shots.indexOf(shot.id);
+            const order = visibleShots.indexOf(shot.id);
             return (
               <Button
                 key={shot.id}
                 size="xs"
                 variant={order === -1 ? "outline" : "secondary"}
                 aria-pressed={order !== -1}
-                onClick={() => setShots((current) => toggleShowcaseShot(current, shot.id))}
+                disabled={busy}
+                onClick={() => setShots(toggleShowcaseShot(visibleShots, shot.id))}
               >
                 {order === -1 ? null : (
                   <span className="grid size-4 place-items-center rounded-full bg-foreground text-3xs text-background">
@@ -390,12 +428,14 @@ function OptionSelect<V extends string>(props: {
   readonly ariaLabel: string;
   readonly value: V;
   readonly options: ReadonlyArray<{ readonly value: V; readonly label: string }>;
+  readonly disabled: boolean;
   readonly onChange: (value: V) => void;
 }) {
   const current = props.options.find((option) => option.value === props.value);
   return (
     <Select
       value={props.value}
+      disabled={props.disabled}
       onValueChange={(value) => {
         if (value !== null) props.onChange(value as V);
       }}
