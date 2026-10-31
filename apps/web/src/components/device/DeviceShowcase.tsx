@@ -147,8 +147,9 @@ export function DeviceShowcase(props: {
   const laptop = isLaptopShowcase(deviceId);
   // Lid open stays in the cut when switching to a phone, but only laptops show or play it.
   const visibleShots = laptop ? shots : shots.filter((shot) => shot !== "lid-open");
-  const timeline = showcaseTimeline(shots, deviceId);
-  const duration = timelineDuration(timeline);
+  const duration = timelineDuration(showcaseTimeline(shots, deviceId));
+  // A primitive key, so the cut effect runs when the shots change and not on every render.
+  const shotsKey = shots.join(",");
 
   // One renderer per canvas; the effects below keep it in step with the chosen options.
   const mountCanvas = (canvas: HTMLCanvasElement | null) => {
@@ -191,10 +192,11 @@ export function DeviceShowcase(props: {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the WebGL renderer on the chosen cut and plays it through once
   useEffect(() => {
     if (!renderer) return;
-    renderer.setTimeline(timeline, false);
+    const picked = shotsKey.split(",") as ReadonlyArray<ShowcaseShotId>;
+    renderer.setTimeline(showcaseTimeline(picked, deviceId), false);
     renderer.seek(0);
     if (props.visible) renderer.play();
-  }, [renderer, timeline, props.visible]);
+  }, [renderer, deviceId, shotsKey, props.visible]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the WebGL render loop while the panel is hidden
   useEffect(() => {
     if (!props.visible) renderer?.pause();
