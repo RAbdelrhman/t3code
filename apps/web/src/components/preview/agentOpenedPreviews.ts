@@ -203,7 +203,7 @@ export function applyDeviceSnapshot(
 }
 
 const showcaseKey = (request: NonNullable<DeviceServiceState["showcases"]>[number]) =>
-  `${request.threadId}:${request.requestedAt}`;
+  `${request.threadId}:${request.requestedAt}:${request.requestId}`;
 
 /** Per environment: the Showcase requests seen in the last snapshot, with the same baseline rule as sessions. */
 const showcaseBaselines = new Map<EnvironmentId, ReadonlySet<string>>();

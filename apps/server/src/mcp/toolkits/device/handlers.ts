@@ -310,7 +310,7 @@ const handlers = {
       return {
         script,
         message:
-          "The Showcase studio is open in the user's Device panel with these choices. The user drops in a screen recording or screenshot and clicks Export video for an MP4. Call device_showcase again to change the shots, device, backdrop or aspect.",
+          "Asked the user's web and desktop clients for this thread to open the Showcase studio in the Device panel with these choices. The mobile app has no Showcase, and a client that is not connected will not open it; if the user does not see it, they can open Device, then Showcase. The user drops in a screen recording or screenshot and clicks Export video for an MP4. Call device_showcase again to change the shots, device, backdrop or aspect.",
       };
     }).pipe(Effect.mapError(toolError)),
   ),

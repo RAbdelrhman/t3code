@@ -86,8 +86,9 @@ function setup() {
 const miniPlayerSource = () => usePreviewMiniPlayerStore.getState().byThreadKey[threadKey]?.source;
 
 describe("agent showcase requests", () => {
-  const request = (requestedAt: string) => ({
+  const request = (requestedAt: string, requestId = 1) => ({
     threadId: ref.threadId,
+    requestId,
     requestedAt,
     script: { device: "dell-xps-14" as const, shots: ["orbit" as const] },
   });
@@ -115,6 +116,14 @@ describe("agent showcase requests", () => {
     useShowcaseStore.getState().close(threadKey);
     applyDeviceSnapshot(ref.environmentId, next, floating);
     expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeUndefined();
+  });
+
+  it("opens a second request made in the same millisecond", () => {
+    setup();
+    const at = "2026-10-30T00:01:00.000Z";
+    applyDeviceSnapshot(ref.environmentId, deviceState({ showcases: [request(at, 1)] }), floating);
+    applyDeviceSnapshot(ref.environmentId, deviceState({ showcases: [request(at, 2)] }), floating);
+    expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeDefined();
   });
 });
 

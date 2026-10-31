@@ -80,6 +80,9 @@ import * as LocalDeviceHost from "./LocalDeviceHost.ts";
 
 export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
 
+/** Showcase requests kept in device state; every state update carries them to every client. */
+const MAX_SHOWCASE_REQUESTS = 16;
+
 const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
   const cause = error.cause;
   if (
@@ -992,16 +995,19 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
     },
   );
 
+  let showcaseRequests = 0;
   const showcase: DeviceService["Service"]["showcase"] = Effect.fn("DeviceService.showcase")(
     function* (threadId, script) {
       const requestedAt = DateTime.formatIso(yield* DateTime.now);
-      // One request per thread: a newer one replaces the last, which clients have already applied.
+      const requestId = ++showcaseRequests;
+      // Clients act on a request once, when it first appears, so only recent ones need to travel:
+      // one per thread, and no more than MAX_SHOWCASE_REQUESTS in every state update.
       yield* publish((state) => ({
         ...state,
         showcases: [
           ...(state.showcases ?? []).filter((request) => request.threadId !== threadId),
-          { threadId, requestedAt, script },
-        ],
+          { threadId, requestId, requestedAt, script },
+        ].slice(-MAX_SHOWCASE_REQUESTS),
       }));
     },
   );

@@ -329,6 +329,32 @@ const fixture = Effect.fn("fixture")(function* (
   };
 });
 
+describe("showcase requests", () => {
+  it.effect(
+    "publishes one request per thread with a unique id, keeps only recent ones, and needs no device host",
+    () =>
+      Effect.gen(function* () {
+        const { service, starts } = yield* fixture();
+        const first = ThreadId.make("thread-a");
+        yield* service.showcase(first, { device: "macbook-pro-14" });
+        yield* service.showcase(first, { device: "dell-xps-14" });
+        const forThread = (yield* service.state).showcases?.filter(
+          (request) => request.threadId === first,
+        );
+        expect(forThread?.map((request) => request.script)).toEqual([{ device: "dell-xps-14" }]);
+
+        for (let index = 0; index < 20; index++)
+          yield* service.showcase(ThreadId.make(`thread-${index}`), { shots: ["orbit"] });
+        const showcases = (yield* service.state).showcases ?? [];
+        expect(showcases).toHaveLength(16);
+        expect(showcases.at(-1)?.threadId).toBe("thread-19");
+        expect(new Set(showcases.map((request) => request.requestId)).size).toBe(16);
+        // Opening a showcase starts no device helpers.
+        expect(starts).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+});
+
 describe("device setup consent", () => {
   it.effect("exposes daemon startup diagnostics through agent readiness and host status", () =>
     Effect.gen(function* () {

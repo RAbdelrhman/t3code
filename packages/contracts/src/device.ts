@@ -296,6 +296,8 @@ export type DeviceShowcaseScript = typeof DeviceShowcaseScript.Type;
 
 export const DeviceShowcaseRequest = Schema.Struct({
   threadId: ThreadId,
+  /** Unique per request on this server, so two in one millisecond are both seen. */
+  requestId: Schema.Int,
   requestedAt: Schema.String,
   script: DeviceShowcaseScript,
 });
