@@ -18,6 +18,7 @@ import {
   resetPreviewStateForTests,
 } from "../../previewStateStore";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useShowcaseExportStore } from "../device/showcaseExportStore";
 import { useShowcaseStore } from "../device/showcaseStore";
 import {
   applyDeviceSnapshot,
@@ -116,6 +117,22 @@ describe("agent showcase requests", () => {
     useShowcaseStore.getState().close(threadKey);
     applyDeviceSnapshot(ref.environmentId, next, floating);
     expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeUndefined();
+  });
+
+  it("queues an export for the offscreen host instead of opening the Device panel", () => {
+    setup();
+    useShowcaseExportStore.setState({ jobs: [] });
+    applyDeviceSnapshot(ref.environmentId, deviceState({ showcases: [] }), floating);
+    const exportRequest = {
+      ...request("2026-10-30T00:02:00.000Z", 7),
+      script: { device: "iphone-duo" as const, screen: "/tmp/app.mp4", export: true },
+    };
+    applyDeviceSnapshot(ref.environmentId, deviceState({ showcases: [exportRequest] }), floating);
+    expect(useShowcaseExportStore.getState().jobs).toMatchObject([
+      { environmentId: ref.environmentId, threadId: ref.threadId, requestId: 7 },
+    ]);
+    expect(useShowcaseStore.getState().byThreadKey[threadKey]).toBeUndefined();
+    expect(useRightPanelStore.getState().byThreadKey[threadKey]).toBeUndefined();
   });
 
   it("opens a second request made in the same millisecond", () => {

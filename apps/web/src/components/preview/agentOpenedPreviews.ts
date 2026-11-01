@@ -27,6 +27,7 @@ import { useRightPanelStore } from "../../rightPanelStore";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../../rightPanelLayout";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { deviceEnvironment } from "../../state/device";
+import { useShowcaseExportStore } from "../device/showcaseExportStore";
 import { useShowcaseStore } from "../device/showcaseStore";
 import { readEnvironmentSupportsServerBrowser } from "../../state/entities";
 import { environmentSummaries } from "../../state/presentation";
@@ -220,8 +221,18 @@ function applyShowcaseSnapshot(
   if (!previous) return;
   for (const request of requests) {
     if (previous.has(showcaseKey(request))) continue;
+    if (request.script.export) {
+      // Exports render offscreen in this window; the user's panel stays as it is.
+      useShowcaseExportStore.getState().add({
+        environmentId,
+        threadId: request.threadId,
+        requestId: request.requestId,
+        script: request.script,
+      });
+      continue;
+    }
     const threadRef = scopeThreadRef(environmentId, request.threadId);
-    useShowcaseStore.getState().open(scopedThreadKey(threadRef), request.script);
+    useShowcaseStore.getState().open(scopedThreadKey(threadRef), request.script, request.requestId);
     if (!sheetLayout) useRightPanelStore.getState().open(threadRef, "device");
   }
 }

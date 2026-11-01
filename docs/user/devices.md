@@ -101,10 +101,13 @@ taps build a small test runner on first use, which takes a couple of minutes
 once per server. Restart an existing agent session after granting access so it
 receives the device CLI environment.
 
-Ask an agent for a promo video and it can open **Showcase** in the thread's
-Device panel with the device, shots, backdrop and aspect ratio already chosen.
-You add the recording and export it. This uses the same **Agents can use
-devices** permission but starts no simulator.
+Ask an agent for a promo video and it can make one end to end: it hands
+**Showcase** a screen recording or screenshot of your app, picks the device,
+shots, backdrop and aspect ratio, and gets back the rendered MP4. The clip
+renders in a T3 Code window on the server's machine, in the background, so keep
+one open; the mobile app cannot render it. It needs no simulator or device
+setup. An agent can also just open the studio with its choices for you to
+finish.
 
 To keep agents away from simulators, turn off **Agents can use devices** in
 **Settings → Devices**. This hides the device tools from agents

@@ -201,6 +201,7 @@ export function DevicePanel(props: {
           // One studio per thread: its recording and choices do not follow a thread switch.
           key={threadKey}
           visible={props.visible}
+          threadRef={props.threadRef}
           script={showcase.script}
           scriptNonce={showcase.nonce}
           onClose={() => useShowcaseStore.getState().close(threadKey)}

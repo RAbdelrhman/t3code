@@ -8,7 +8,11 @@ import {
   DeviceToolUnavailableError,
   LOCAL_DEVICE_HOST_ID,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as ServerConfig from "../../../config.ts";
+import * as Path from "effect/Path";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as DeviceService from "../../../device/DeviceService.ts";
 import { threadWorkspaceRoot } from "../../../project/threadWorkspaceRoot.ts";
@@ -82,6 +86,53 @@ export function agentDeviceQuickStart(
     platformNotes,
   ].join("\n");
 }
+
+const SHOWCASE_VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".m4v"]);
+const SHOWCASE_SCREEN_EXTENSIONS = new Set([
+  ...SHOWCASE_VIDEO_EXTENSIONS,
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+]);
+
+/**
+ * Uploaded exports land in the pending attachment area, which is swept after a while, so the
+ * finished clip moves to a durable showcase folder in the server's state directory.
+ */
+const keepShowcaseExport = Effect.fn("handlers.keepShowcaseExport")(function* (
+  attachmentId: string,
+  device: string,
+  requestId: number,
+) {
+  const config = yield* ServerConfig.ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const missing = () =>
+    new DeviceToolUnavailableError({
+      reason: "The rendered Showcase clip did not reach the server.",
+    });
+  const entries = yield* fileSystem
+    .readDirectory(config.attachmentsDir)
+    .pipe(Effect.mapError(missing));
+  const name = entries.find((entry) => entry.startsWith(attachmentId) && !entry.endsWith(".part"));
+  if (!name) return yield* missing();
+  const extension = path.extname(name) || ".mp4";
+  const directory = path.join(config.stateDir, "showcase");
+  const stamp = yield* Clock.currentTimeMillis;
+  const target = path.join(directory, `showcase-${device}-${requestId}-${stamp}${extension}`);
+  yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(missing));
+  yield* fileSystem
+    .rename(path.join(config.attachmentsDir, name), target)
+    .pipe(Effect.mapError(missing));
+  const info = yield* fileSystem.stat(target).pipe(Effect.mapError(missing));
+  return {
+    path: target,
+    mimeType: extension === ".webm" ? "video/webm" : "video/mp4",
+    sizeBytes: Number(info.size),
+  };
+});
 
 const requireDeviceAccess = McpInvocationContext.requireThreadMcpCapability("device").pipe(
   Effect.mapError(
@@ -302,17 +353,56 @@ const handlers = {
       };
     }).pipe(Effect.mapError(toolError)),
   ),
-  device_showcase: McpToolAccess.actsAsCaller((script) =>
+  device_showcase: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      const scope = yield* requireDeviceAccess;
+      // Showcase starts no simulator, so any thread may use it without device access.
+      const invocation = yield* McpInvocationContext.McpInvocationContext;
+      const scope = yield* McpInvocationContext.requireThreadScope(invocation, "device_showcase");
+      const threadId = scope.thread.threadId;
       const devices = yield* DeviceService.DeviceService;
-      yield* devices.showcase(scope.thread.threadId, script);
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      let screen = input.screen;
+      if (screen !== undefined) {
+        const root = yield* threadWorkspaceRoot(threadId);
+        const resolved = path.isAbsolute(screen)
+          ? screen
+          : path.resolve(root ?? process.cwd(), screen);
+        if (!SHOWCASE_SCREEN_EXTENSIONS.has(path.extname(resolved).toLowerCase())) {
+          return yield* new DeviceToolUnavailableError({
+            reason: `screen must be a video (${[...SHOWCASE_VIDEO_EXTENSIONS].join(", ")}) or image (png, jpg, jpeg, webp, gif): ${resolved}`,
+          });
+        }
+        if (!(yield* fileSystem.exists(resolved).pipe(Effect.orElseSucceed(() => false)))) {
+          return yield* new DeviceToolUnavailableError({
+            reason: `No screen file at ${resolved}.`,
+          });
+        }
+        screen = resolved;
+      }
+      const script = { ...input, ...(screen === undefined ? {} : { screen }) };
+      const requestId = yield* devices.showcase(threadId, script);
+      if (!script.export) {
+        return {
+          script,
+          message:
+            "Opened the Showcase studio in this thread's Device panel in the user's web and desktop T3 Code windows. Set export: true to render the MP4 yourself; otherwise the user clicks Export video.",
+        };
+      }
+      const attachmentId = yield* devices
+        .awaitShowcaseExport(requestId, { startTimeout: "45 seconds", finishTimeout: "20 minutes" })
+        .pipe(Effect.mapError((error) => new DeviceToolUnavailableError({ reason: error.reason })));
+      const video = yield* keepShowcaseExport(
+        attachmentId,
+        script.device ?? "macbook-pro-14",
+        requestId,
+      );
       return {
         script,
-        message:
-          "Asked the user's web and desktop clients for this thread to open the Showcase studio in the Device panel with these choices. The mobile app has no Showcase, and a client that is not connected will not open it; if the user does not see it, they can open Device, then Showcase. The user drops in a screen recording or screenshot and clicks Export video for an MP4. Call device_showcase again to change the shots, device, backdrop or aspect.",
+        message: `Rendered the Showcase clip to ${video.path}. Attach it with the T3 attachment tools or reference the path directly.`,
+        video,
       };
-    }).pipe(Effect.mapError(toolError)),
+    }),
   ),
   device_close: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {

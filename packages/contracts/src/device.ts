@@ -292,8 +292,30 @@ export const DeviceShowcaseScript = Schema.Struct({
       description: "16:9, 1:1, 4:5 or 9:16 output.",
     }),
   ),
+  screen: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "What plays on the device's screen: a screen recording (mp4, webm, mov) or image (png, jpg, webp), as an absolute path or relative to the thread's workspace. Record one with preview_recording_start/stop or the device's agent-device recorder.",
+    }),
+  ),
+  export: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Render the clip and return the MP4's path instead of leaving it for the user to export. Needs T3 Code open on this machine; rendering takes about as long as the clip, or longer on slow GPUs.",
+    }),
+  ),
 });
 export type DeviceShowcaseScript = typeof DeviceShowcaseScript.Type;
+
+/** A client's progress on rendering an agent-requested Showcase export. */
+export const DeviceShowcaseExportReport = Schema.Struct({
+  requestId: Schema.Int,
+  status: Schema.Literals(["started", "done", "failed"]),
+  /** The uploaded clip, when `status` is `done`. */
+  attachmentId: Schema.optional(TrimmedNonEmptyString),
+  detail: Schema.optional(Schema.String),
+});
+export type DeviceShowcaseExportReport = typeof DeviceShowcaseExportReport.Type;
 
 export const DeviceShowcaseRequest = Schema.Struct({
   threadId: ThreadId,
@@ -736,6 +758,10 @@ export type DeviceToolScreenshotResult = typeof DeviceToolScreenshotResult.Type;
 export const DeviceToolShowcaseResult = Schema.Struct({
   script: DeviceShowcaseScript,
   message: Schema.String,
+  /** The rendered clip, when `export` was set. */
+  video: Schema.optional(
+    Schema.Struct({ path: Schema.String, mimeType: Schema.String, sizeBytes: Schema.Int }),
+  ),
 });
 export type DeviceToolShowcaseResult = typeof DeviceToolShowcaseResult.Type;
 

@@ -86,11 +86,18 @@ export const DeviceScreenshotTool = Tool.make("device_screenshot", {
 
 const DeviceShowcaseTool = Tool.make("device_showcase", {
   description:
-    "Open the Showcase studio in the user's Device panel: a 3D laptop, phone or tablet with a cinematic camera, for app promo videos. Pass the device, shots in order, backdrop and aspect; omitted choices keep the studio's current value. Needs no simulator. The user adds their screen recording and exports the MP4.",
+    "Make a cinematic promo clip of an app on a 3D MacBook, Dell XPS, iPhone, iPhone Duo or iPad. Pass `screen` (a screen recording or screenshot of the app), the device, camera shots in order, backdrop and aspect, and `export: true` to get back the rendered MP4's path. Without `export`, it opens the Showcase studio in the user's Device panel for them to finish. Needs no simulator or device setup.",
   parameters: DeviceShowcaseScript,
   success: DeviceToolShowcaseResult,
   failure: DeviceToolFailure,
-  dependencies,
+  dependencies: [
+    ...dependencies,
+    FileSystem.FileSystem,
+    Path.Path,
+    ServerConfig.ServerConfig,
+    // Relative screen paths resolve against the thread's project.
+    ProjectService.ProjectService,
+  ],
 })
   .annotate(Tool.Title, "Open showcase")
   .annotate(Tool.Readonly, false)

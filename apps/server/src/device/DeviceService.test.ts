@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -352,6 +353,75 @@ describe("showcase requests", () => {
         // Opening a showcase starts no device helpers.
         expect(starts).toEqual([]);
       }).pipe(Effect.scoped),
+  );
+
+  it.effect("resolves an export with the uploaded clip once a client reports it done", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture();
+      const requestId = yield* service.showcase(ThreadId.make("thread-a"), { export: true });
+      const waiting = yield* Effect.forkChild(
+        service.awaitShowcaseExport(requestId, {
+          startTimeout: "45 seconds",
+          finishTimeout: "20 minutes",
+        }),
+      );
+      yield* service.reportShowcaseExport({ requestId, status: "started" });
+      yield* service.reportShowcaseExport({
+        requestId,
+        status: "done",
+        attachmentId: "pending-clip-mp4",
+      });
+      expect(yield* Fiber.join(waiting)).toBe("pending-clip-mp4");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("passes a client's failure reason through to the waiting agent", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture();
+      const requestId = yield* service.showcase(ThreadId.make("thread-a"), { export: true });
+      const waiting = yield* Effect.forkChild(
+        service
+          .awaitShowcaseExport(requestId, {
+            startTimeout: "45 seconds",
+            finishTimeout: "20 minutes",
+          })
+          .pipe(Effect.flip),
+      );
+      yield* service.reportShowcaseExport({
+        requestId,
+        status: "failed",
+        detail: "WebGL is unavailable",
+      });
+      expect((yield* Fiber.join(waiting)).reason).toBe("WebGL is unavailable");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("fails fast when no T3 Code window starts rendering", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture();
+      const requestId = yield* service.showcase(ThreadId.make("thread-a"), { export: true });
+      const waiting = yield* Effect.forkChild(
+        service
+          .awaitShowcaseExport(requestId, {
+            startTimeout: "45 seconds",
+            finishTimeout: "20 minutes",
+          })
+          .pipe(Effect.flip),
+      );
+      yield* TestClock.adjust("46 seconds");
+      expect((yield* Fiber.join(waiting)).reason).toContain("No T3 Code window");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("refuses to wait on a request that did not ask for an export", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture();
+      const requestId = yield* service.showcase(ThreadId.make("thread-a"), {});
+      const error = yield* service
+        .awaitShowcaseExport(requestId, { startTimeout: "1 second", finishTimeout: "1 second" })
+        .pipe(Effect.flip);
+      expect(error.reason).toContain("not requested with export");
+    }).pipe(Effect.scoped),
   );
 });
 

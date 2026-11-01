@@ -15,7 +15,11 @@ import type {
   ShowcaseScreenSource,
 } from "@t3tools/client-runtime/device/showcase/showcase-renderer";
 import { Download, ImageUp, Pause, Play, X } from "lucide-react";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useRef, useState } from "react";
+
+import { useAssetUrlState } from "~/assets/assetUrls";
+import { useStableCallback } from "~/hooks/useStableCallback";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -41,77 +45,21 @@ import {
   type ShowcaseDeviceId,
 } from "./showcaseStudio";
 import type { ShowcaseScript } from "./showcaseStore";
+import {
+  loadScreenFile,
+  loadShowcaseRenderer,
+  placeholderScreen,
+  releaseScreen,
+  screenMimeType,
+} from "./showcaseScreen";
 
 const DOWNLOAD_URL_LIFETIME_MS = 60_000;
 
 /** three.js and the studio scene load only when someone opens the studio. */
-const loadShowcaseRenderer = () =>
-  import("@t3tools/client-runtime/device/showcase/showcase-renderer");
-
-/** Shown on the screen until the user picks a recording, so the studio is never empty. */
-function placeholderScreen() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1600;
-  canvas.height = 1000;
-  const context = canvas.getContext("2d")!;
-  const gradient = context.createLinearGradient(0, 0, 1600, 1000);
-  gradient.addColorStop(0, "#1f2a44");
-  gradient.addColorStop(1, "#0b0d14");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 1600, 1000);
-  context.fillStyle = "rgba(255,255,255,0.9)";
-  context.font = "600 64px system-ui, sans-serif";
-  context.textAlign = "center";
-  context.fillText("Your app here", 800, 480);
-  context.fillStyle = "rgba(255,255,255,0.55)";
-  context.font = "400 34px system-ui, sans-serif";
-  context.fillText("Drop a screen recording or screenshot", 800, 550);
-  return canvas;
-}
-
-function loadScreenFile(file: File): Promise<ShowcaseScreenSource> {
-  const url = URL.createObjectURL(file);
-  if (file.type.startsWith("video/")) {
-    const video = document.createElement("video");
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.crossOrigin = "anonymous";
-    video.src = url;
-    return new Promise((resolve, reject) => {
-      video.addEventListener("loadeddata", () => resolve(video), { once: true });
-      video.addEventListener(
-        "error",
-        () => {
-          URL.revokeObjectURL(url);
-          reject(new Error("That video could not be read."));
-        },
-        { once: true },
-      );
-    });
-  }
-  const image = new Image();
-  image.src = url;
-  return image.decode().then(
-    () => image,
-    () => {
-      URL.revokeObjectURL(url);
-      throw new Error("That image could not be read.");
-    },
-  );
-}
-
-/** Stops a dropped recording and frees its blob; the placeholder canvas holds none. */
-function releaseScreen(source: ShowcaseScreenSource | null) {
-  if (source instanceof HTMLVideoElement) {
-    source.pause();
-    URL.revokeObjectURL(source.src);
-  } else if (source instanceof HTMLImageElement) URL.revokeObjectURL(source.src);
-}
-
 const formatSeconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 export function DeviceShowcase(props: {
+  readonly threadRef: ScopedThreadRef;
   readonly script: ShowcaseScript;
   /** Changes when someone, often an agent, asks for this script again. */
   readonly scriptNonce: number;
@@ -215,46 +163,99 @@ export function DeviceShowcase(props: {
     renderer?.setBackdrop(backdrop);
   }, [renderer, backdrop]);
 
-  const pickScreen = (file: File | undefined) => {
+  const pickScreen = (file: File | undefined): Promise<boolean> => {
     // Dropping a file mid-export would swap the screen partway through the clip.
-    if (!file || busy) return;
+    if (!file || busy) return Promise.resolve(false);
     if (!file.type.startsWith("video/") && !file.type.startsWith("image/")) {
       setError("Use a video or image file.");
-      return;
+      return Promise.resolve(false);
     }
     setError(null);
     const pick = ++screenPickRef.current;
-    loadScreenFile(file).then(
+    return loadScreenFile(file).then(
       (source) => {
         if (pick !== screenPickRef.current) {
           releaseScreen(source);
-          return;
+          return false;
         }
         const previous = sourceRef.current;
         sourceRef.current = source;
         renderer?.setSource(source);
         renderer?.seek(0);
         releaseScreen(previous);
+        return true;
       },
       (cause: unknown) => {
         if (pick === screenPickRef.current)
           setError(cause instanceof Error ? cause.message : String(cause));
+        return false;
       },
     );
   };
 
-  const exportClip = () => {
-    if (!renderer || busy) return;
+  const installScreen = useStableCallback(pickScreen);
+
+  // An agent's `screen` is a path on the server; a signed asset URL serves it to this window.
+  const environmentId = props.threadRef.environmentId;
+  const screenAsset = useAssetUrlState(
+    script.screen ? environmentId : null,
+    script.screen
+      ? { _tag: "media-file", threadId: props.threadRef.threadId, path: script.screen }
+      : null,
+  );
+  const [loadedScreen, setLoadedScreen] = useState<string | null>(null);
+  const screenUrl = screenAsset._tag === "Success" ? screenAsset.url : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the agent-named screen file into the WebGL renderer
+  useEffect(() => {
+    const path = script.screen;
+    if (!renderer || !path || !screenUrl || loadedScreen === path) return;
+    let cancelled = false;
+    void fetch(screenUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Could not read the screen file (${response.status}).`);
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return false;
+        const name = path.split(/[\\/]/).pop() ?? "screen";
+        return installScreen(new File([blob], name, { type: blob.type || screenMimeType(name) }));
+      })
+      .then((installed) => {
+        if (!cancelled && installed) setLoadedScreen(path);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [renderer, script.screen, screenUrl, loadedScreen, installScreen]);
+
+  /** Renders the current cut; resolves null when closed mid-export, and rejects on failure. */
+  const renderClip = () => {
+    if (!renderer || exportAbortRef.current)
+      return Promise.reject(new Error("Showcase is not ready to export."));
     const abort = new AbortController();
     exportAbortRef.current = abort;
     setExporting(0);
     setError(null);
     const { width, height } = SHOWCASE_ASPECTS[aspect];
-    renderer
+    return renderer
       .record({ width, height, signal: abort.signal, onProgress: setExporting })
-      .then(({ blob, extension }) => {
+      .then((clip) => (abort.signal.aborted ? null : clip))
+      .finally(() => {
+        if (exportAbortRef.current === abort) exportAbortRef.current = null;
+        setExporting(null);
+      });
+  };
+
+  const exportClip = () => {
+    if (!renderer || busy) return;
+    renderClip()
+      .then((clip) => {
         // Closing the studio mid-export cancels the download too.
-        if (abort.signal.aborted) return;
+        if (!clip) return;
+        const { blob, extension } = clip;
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -265,12 +266,7 @@ export function DeviceShowcase(props: {
         window.setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
       })
       .catch((cause: unknown) => {
-        if (!abort.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "Export failed. Try again.");
-      })
-      .finally(() => {
-        if (exportAbortRef.current === abort) exportAbortRef.current = null;
-        setExporting(null);
+        setError(cause instanceof Error ? cause.message : "Export failed. Try again.");
       });
   };
 

@@ -72,6 +72,12 @@ export function createDeviceEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    reportShowcaseExport: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:device:showcase-export-report",
+      tag: WS_METHODS.deviceShowcaseExportReport,
+      scheduler,
+      concurrency,
+    }),
     shutdown: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:device:shutdown",
       tag: WS_METHODS.deviceShutdown,

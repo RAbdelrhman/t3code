@@ -15,6 +15,7 @@ import {
   DevicePlatformUnavailableError,
   type DeviceServiceState,
   type DeviceSession,
+  type DeviceShowcaseExportReport,
   type DeviceShowcaseScript,
   type DeviceShutdownInput,
   type DeviceSummary,
@@ -53,6 +54,8 @@ import {
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -79,6 +82,16 @@ import * as Exit from "effect/Exit";
 import * as LocalDeviceHost from "./LocalDeviceHost.ts";
 
 export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
+
+/** An agent-requested Showcase export that no client finished. */
+export class ShowcaseExportError extends Schema.TaggedError<ShowcaseExportError>()(
+  "ShowcaseExportError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
+  }
+}
 
 /** Showcase requests kept in device state; every state update carries them to every client. */
 const MAX_SHOWCASE_REQUESTS = 16;
@@ -233,7 +246,18 @@ export class DeviceService extends Context.Service<
     readonly currentReadiness: (hostId?: DeviceHostId) => Effect.Effect<DeviceReadiness | null>;
     readonly sessionsForThread: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<DeviceSession>>;
     /** Asks this thread's clients to open the Showcase studio with `script`. Needs no device host. */
-    readonly showcase: (threadId: ThreadId, script: DeviceShowcaseScript) => Effect.Effect<void>;
+    /** Publishes a Showcase request for the thread's clients and returns its id. */
+    readonly showcase: (threadId: ThreadId, script: DeviceShowcaseScript) => Effect.Effect<number>;
+    /**
+     * Waits for a client to render an exported Showcase. Fails if no client starts within
+     * `startTimeout` or finishes within `finishTimeout`; resolves with the uploaded attachment id.
+     */
+    readonly awaitShowcaseExport: (
+      requestId: number,
+      options: { readonly startTimeout: Duration.Input; readonly finishTimeout: Duration.Input },
+    ) => Effect.Effect<string, ShowcaseExportError>;
+    /** A client's progress report; the first `done` or `failed` settles the request. */
+    readonly reportShowcaseExport: (report: DeviceShowcaseExportReport) => Effect.Effect<void>;
   }
 >()("t3/device/DeviceService") {}
 
@@ -996,10 +1020,25 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
   );
 
   let showcaseRequests = 0;
+  /** Exports agents are waiting on, by request id. Registered before the request publishes. */
+  const pendingExports = new Map<
+    number,
+    {
+      readonly started: Deferred.Deferred<void>;
+      readonly done: Deferred.Deferred<string, ShowcaseExportError>;
+    }
+  >();
+
   const showcase: DeviceService["Service"]["showcase"] = Effect.fn("DeviceService.showcase")(
     function* (threadId, script) {
       const requestedAt = DateTime.formatIso(yield* DateTime.now);
       const requestId = ++showcaseRequests;
+      if (script.export) {
+        pendingExports.set(requestId, {
+          started: yield* Deferred.make<void>(),
+          done: yield* Deferred.make<string, ShowcaseExportError>(),
+        });
+      }
       // Clients act on a request once, when it first appears, so only recent ones need to travel:
       // one per thread, and no more than MAX_SHOWCASE_REQUESTS in every state update.
       yield* publish((state) => ({
@@ -1009,8 +1048,67 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
           { threadId, requestId, requestedAt, script },
         ].slice(-MAX_SHOWCASE_REQUESTS),
       }));
+      return requestId;
     },
   );
+
+  const awaitShowcaseExport: DeviceService["Service"]["awaitShowcaseExport"] = Effect.fn(
+    "DeviceService.awaitShowcaseExport",
+  )(function* (requestId, options) {
+    const pending = pendingExports.get(requestId);
+    if (!pending)
+      return yield* new ShowcaseExportError({
+        reason: "This Showcase was not requested with export.",
+      });
+    return yield* Effect.gen(function* () {
+      yield* Deferred.await(pending.started).pipe(
+        Effect.timeoutOrElse({
+          duration: options.startTimeout,
+          orElse: () =>
+            Effect.fail(
+              new ShowcaseExportError({
+                reason:
+                  "No T3 Code window started rendering the Showcase. Exports render in a web or desktop T3 Code window on this machine (the mobile app cannot): ask the user to open T3 Code, then call device_showcase again.",
+              }),
+            ),
+        }),
+      );
+      return yield* Deferred.await(pending.done).pipe(
+        Effect.timeoutOrElse({
+          duration: options.finishTimeout,
+          orElse: () =>
+            Effect.fail(
+              new ShowcaseExportError({
+                reason:
+                  "The Showcase export started but did not finish in time. Try a shorter cut.",
+              }),
+            ),
+        }),
+      );
+    }).pipe(Effect.ensuring(Effect.sync(() => pendingExports.delete(requestId))));
+  });
+
+  const reportShowcaseExport: DeviceService["Service"]["reportShowcaseExport"] = Effect.fn(
+    "DeviceService.reportShowcaseExport",
+  )(function* (report) {
+    const pending = pendingExports.get(report.requestId);
+    if (!pending) return;
+    if (report.status === "started") {
+      yield* Deferred.succeed(pending.started, undefined);
+      return;
+    }
+    yield* Deferred.succeed(pending.started, undefined);
+    if (report.status === "done" && report.attachmentId) {
+      yield* Deferred.succeed(pending.done, report.attachmentId);
+      return;
+    }
+    yield* Deferred.fail(
+      pending.done,
+      new ShowcaseExportError({
+        reason: report.detail ?? "The Showcase export failed in T3 Code.",
+      }),
+    );
+  });
 
   const sessionsForThread: DeviceService["Service"]["sessionsForThread"] = (threadId) =>
     SynchronizedRef.get(stateRef).pipe(
@@ -1214,6 +1312,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       currentReadiness,
       sessionsForThread,
       showcase,
+      awaitShowcaseExport,
+      reportShowcaseExport,
     }),
     setHostStatus,
     withLifecycleLock: lifecycleLock.withPermit,
