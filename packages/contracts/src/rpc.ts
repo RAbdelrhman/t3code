@@ -1685,6 +1685,8 @@ const WsDeviceOpenRpc = Rpc.make(WS_METHODS.deviceOpen, {
 
 const WsDeviceShowcaseExportReportRpc = Rpc.make(WS_METHODS.deviceShowcaseExportReport, {
   payload: DeviceShowcaseExportReport,
+  /** For `started`, whether this window claimed the export; only the claimer renders it. */
+  success: Schema.Boolean,
   error: Schema.Union([DeviceError, EnvironmentAuthorizationError]),
 });
 

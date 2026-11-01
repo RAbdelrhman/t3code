@@ -256,8 +256,11 @@ export class DeviceService extends Context.Service<
       requestId: number,
       options: { readonly startTimeout: Duration.Input; readonly finishTimeout: Duration.Input },
     ) => Effect.Effect<string, ShowcaseExportError>;
-    /** A client's progress report; the first `done` or `failed` settles the request. */
-    readonly reportShowcaseExport: (report: DeviceShowcaseExportReport) => Effect.Effect<void>;
+    /**
+     * A client's progress report. Every open window gets the request, so only the first to report
+     * `started` claims it (true); the rest get false and must not render. `done` or `failed` settles it.
+     */
+    readonly reportShowcaseExport: (report: DeviceShowcaseExportReport) => Effect.Effect<boolean>;
   }
 >()("t3/device/DeviceService") {}
 
@@ -1092,17 +1095,13 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
     "DeviceService.reportShowcaseExport",
   )(function* (report) {
     const pending = pendingExports.get(report.requestId);
-    if (!pending) return;
-    if (report.status === "started") {
-      yield* Deferred.succeed(pending.started, undefined);
-      return;
-    }
-    yield* Deferred.succeed(pending.started, undefined);
+    if (!pending) return false;
+    const claimed = yield* Deferred.succeed(pending.started, undefined);
+    if (report.status === "started") return claimed;
     if (report.status === "done" && report.attachmentId) {
-      yield* Deferred.succeed(pending.done, report.attachmentId);
-      return;
+      return yield* Deferred.succeed(pending.done, report.attachmentId);
     }
-    yield* Deferred.fail(
+    return yield* Deferred.fail(
       pending.done,
       new ShowcaseExportError({
         reason: report.detail ?? "The Showcase export failed in T3 Code.",

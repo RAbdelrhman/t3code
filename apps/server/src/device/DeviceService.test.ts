@@ -365,7 +365,9 @@ describe("showcase requests", () => {
           finishTimeout: "20 minutes",
         }),
       );
-      yield* service.reportShowcaseExport({ requestId, status: "started" });
+      // Two open windows report started; only the first may render.
+      expect(yield* service.reportShowcaseExport({ requestId, status: "started" })).toBe(true);
+      expect(yield* service.reportShowcaseExport({ requestId, status: "started" })).toBe(false);
       yield* service.reportShowcaseExport({
         requestId,
         status: "done",

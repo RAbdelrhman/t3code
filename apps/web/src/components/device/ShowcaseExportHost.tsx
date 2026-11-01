@@ -59,7 +59,12 @@ function ShowcaseExportRun(props: { readonly job: ShowcaseExportJob }) {
     const aspect = SHOWCASE_ASPECTS[script.aspect ?? "landscape"];
     let source: Awaited<ReturnType<typeof loadScreenFromUrl>> | null = null;
     let renderer: { dispose: () => void } | null = null;
-    await report({ status: "started" });
+    // Every open window gets the request; only the one the server lets claim it renders.
+    const claim = await report({ status: "started" });
+    if (claim._tag !== "Success" || !claim.value) {
+      useShowcaseExportStore.getState().finish(job.key);
+      return;
+    }
     return (async () => {
       if (script.screen && !screenUrl) throw new Error(`Could not open ${script.screen}.`);
       source =
