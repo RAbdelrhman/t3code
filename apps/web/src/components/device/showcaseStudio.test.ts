@@ -10,6 +10,7 @@ import {
   SHOWCASE_DEVICES,
   showcaseDevice,
   showcaseFileName,
+  showcaseShotLabel,
   showcaseTimeline,
   toggleShowcaseShot,
 } from "./showcaseStudio";
@@ -44,6 +45,19 @@ describe("showcase studio", () => {
     const phone = showcaseDevice("iphone-18-pro", "dark");
     expect(phone.kind).toBe("phone");
     expect(phone.kind !== "laptop" && phone.model?.id).toBe("iphone-18-pro");
+  });
+
+  it("unfolds the iPhone Duo with the open shot and builds it from its GLB", () => {
+    expect(
+      showcaseTimeline(["lid-open", "push-in"], "iphone-duo").clips.map((clip) => clip.shot.id),
+    ).toEqual(["lid-open", "push-in"]);
+    const duo = showcaseDevice("iphone-duo", "dark");
+    expect(duo.kind).toBe("foldable");
+    expect(duo.kind === "foldable" && duo.model.id).toBe("iphone-duo");
+    expect(showcaseShotLabel({ id: "lid-open", label: "Lid open" }, "iphone-duo")).toBe("Unfold");
+    expect(showcaseShotLabel({ id: "lid-open", label: "Lid open" }, "dell-xps-14")).toBe(
+      "Lid open",
+    );
   });
 
   it("names exports so they sort by time and are safe on every filesystem", () => {

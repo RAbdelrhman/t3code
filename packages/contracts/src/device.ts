@@ -259,6 +259,7 @@ export const DeviceShowcaseDevice = Schema.Literals([
   "macbook-pro-14",
   "dell-xps-14",
   "iphone-18-pro",
+  "iphone-duo",
   "ipad-pro-13-m5",
 ]);
 export const DeviceShowcaseShot = Schema.Literals([

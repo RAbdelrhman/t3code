@@ -8,6 +8,7 @@ import {
   HemisphereLight,
   LinearFilter,
   Mesh,
+  MeshBasicMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
@@ -23,6 +24,7 @@ import {
 } from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { DeviceModelSource } from "../model.ts";
+import { createDuoScene } from "../duoScene.ts";
 import { createImportedPhoneScene, loadDeviceModel } from "../modelScene.ts";
 import { createPhoneScene, phoneDisplayLayout } from "../phoneScene.ts";
 import { IOS_PHONE_SHAPE, IOS_TABLET_SHAPE } from "../shapeProfile.ts";
@@ -53,6 +55,11 @@ export type ShowcaseDevice =
       readonly kind: "phone" | "tablet";
       /** A photoreal GLB when one ships for this device; the procedural body is the fallback. */
       readonly model?: DeviceModelSource | null;
+    }
+  | {
+      /** A book-style foldable such as iPhone Duo; its fold follows the shot's lid angle. */
+      readonly kind: "foldable";
+      readonly model: DeviceModelSource;
     };
 
 /** Anything three.js can upload as a screen: a recorded clip, a live stream canvas, or a still. */
@@ -235,6 +242,37 @@ export function createShowcaseRenderer(options: {
   /** Changes asked for mid-export, applied once it ends so the clip never switches partway. */
   const deferred = new Map<"device" | "timeline" | "backdrop" | "source", () => void>();
 
+  /**
+   * A foldable's inner display spans both halves when open; the cover shows the same source.
+   * Laptop lid angles map onto the fold, so the resting 108 degrees is fully open.
+   */
+  const foldable = (model: Awaited<ReturnType<typeof loadDeviceModel>>): Presentation => {
+    const duo = createDuoScene(model.asset, { 1: texture, 3: texture });
+    const displays = ["cover-display", "inner-display-left", "inner-display-right"].flatMap(
+      (name) => {
+        const mesh = model.asset.getObjectByName(name);
+        return mesh instanceof Mesh ? [mesh] : [];
+      },
+    );
+    duo.setAngle(180);
+    duo.root.updateMatrixWorld(true);
+    const inner = new Box3();
+    for (const mesh of displays.slice(1)) inner.union(new Box3().setFromObject(mesh));
+    const panel = inner.getSize(new Vector3());
+    return {
+      root: duo.root,
+      screenAspect: panel.x > 0 && panel.y > 0 ? panel.x / panel.y : 1,
+      setLid: (degrees) => duo.setAngle(Math.min(180, (degrees * 180) / LAPTOP_LID_DEFAULT)),
+      setTexture: (next) => {
+        for (const mesh of displays) (mesh.material as MeshBasicMaterial).map = next;
+      },
+      dispose: () => {
+        duo.dispose();
+        model.dispose();
+      },
+    };
+  };
+
   const setDevice = (device: ShowcaseDevice) => {
     if (recording) {
       deferred.set("device", () => setDevice(device));
@@ -254,12 +292,13 @@ export function createShowcaseRenderer(options: {
       });
       return;
     }
-    install(proceduralHandset(device.kind));
+    install(proceduralHandset(device.kind === "foldable" ? "phone" : device.kind));
     if (!device.model) return;
     const controller = new AbortController();
     loadDeviceModel(device.model, controller.signal)
       .then((model) => {
         if (disposed || request !== deviceRequest) return model.dispose();
+        if (device.kind === "foldable") return install(foldable(model));
         const layout = handsetLayout(device.kind);
         let screenAspect = layout.aspect;
         model.asset.traverse((object) => {
