@@ -31,9 +31,11 @@ import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import {
   isLaptopShowcase,
+  opensInShowcase,
   SHOWCASE_DEVICES,
   showcaseDevice,
   showcaseFileName,
+  showcaseShotLabel,
   showcaseTimeline,
   toggleShowcaseShot,
   type ShowcaseDeviceId,
@@ -147,8 +149,9 @@ export function DeviceShowcase(props: {
   const screenPickRef = useRef(0);
   const busy = exporting !== null;
   const laptop = isLaptopShowcase(deviceId);
-  // Lid open stays in the cut when switching to a phone, but only laptops show or play it.
-  const visibleShots = laptop ? shots : shots.filter((shot) => shot !== "lid-open");
+  const opens = opensInShowcase(deviceId);
+  // Lid open stays in the cut when switching to a phone, but only devices that open show or play it.
+  const visibleShots = opens ? shots : shots.filter((shot) => shot !== "lid-open");
   const duration = timelineDuration(showcaseTimeline(shots, deviceId));
   // A primitive key, so the cut effect runs when the shots change and not on every render.
   const shotsKey = shots.join(",");
@@ -415,7 +418,7 @@ export function DeviceShowcase(props: {
         </div>
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Shots">
           <span className="mr-1 text-muted-foreground">Shots</span>
-          {SHOWCASE_SHOTS.filter((shot) => shot.id !== "lid-open" || laptop).map((shot) => {
+          {SHOWCASE_SHOTS.filter((shot) => shot.id !== "lid-open" || opens).map((shot) => {
             const order = visibleShots.indexOf(shot.id);
             return (
               <Button
@@ -431,7 +434,7 @@ export function DeviceShowcase(props: {
                     {order + 1}
                   </span>
                 )}
-                {shot.label}
+                {showcaseShotLabel(shot, deviceId)}
               </Button>
             );
           })}

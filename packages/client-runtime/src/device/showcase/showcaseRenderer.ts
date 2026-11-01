@@ -8,6 +8,7 @@ import {
   HemisphereLight,
   LinearFilter,
   Mesh,
+  MeshBasicMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
@@ -23,6 +24,7 @@ import {
 } from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { DeviceModelSource } from "../model.ts";
+import { createDuoScene } from "../duoScene.ts";
 import { createImportedPhoneScene, loadDeviceModel } from "../modelScene.ts";
 import { createPhoneScene, phoneDisplayLayout } from "../phoneScene.ts";
 import { IOS_PHONE_SHAPE, IOS_TABLET_SHAPE } from "../shapeProfile.ts";
@@ -53,6 +55,11 @@ export type ShowcaseDevice =
       readonly kind: "phone" | "tablet";
       /** A photoreal GLB when one ships for this device; the procedural body is the fallback. */
       readonly model?: DeviceModelSource | null;
+    }
+  | {
+      /** A book-style foldable such as iPhone Duo; its fold follows the shot's lid angle. */
+      readonly kind: "foldable";
+      readonly model: DeviceModelSource;
     };
 
 /** Anything three.js can upload as a screen: a recorded clip, a live stream canvas, or a still. */
@@ -64,6 +71,8 @@ interface Presentation {
   readonly screenAspect: number;
   readonly setLid: (degrees: number) => void;
   readonly setTexture: (texture: Texture) => void;
+  /** Crops any extra panel whose shape differs from `screenAspect`, such as a foldable's cover. */
+  readonly fitExtra?: (sourceAspect: number) => void;
   readonly dispose: () => void;
 }
 
@@ -185,6 +194,7 @@ export function createShowcaseRenderer(options: {
     const crop = coverCrop(width / height, presentation.screenAspect);
     texture.repeat.set(crop.repeat[0], crop.repeat[1]);
     texture.offset.set(crop.offset[0], crop.offset[1]);
+    presentation.fitExtra?.(width / height);
   };
 
   /** Centres the device on the pivot and measures it once, with the lid at its resting angle. */
@@ -232,8 +242,65 @@ export function createShowcaseRenderer(options: {
     };
   };
 
+  /** Settles once the latest device's photoreal model has loaded, or failed back to the procedural body. */
+  let deviceReady: Promise<void> = Promise.resolve();
   /** Changes asked for mid-export, applied once it ends so the clip never switches partway. */
   const deferred = new Map<"device" | "timeline" | "backdrop" | "source", () => void>();
+
+  /**
+   * A foldable's inner display spans both halves when open; the cover shows the same source
+   * through its own texture, cropped to the cover's shape. The resting 108 degrees is fully open.
+   */
+  const foldable = (model: Awaited<ReturnType<typeof loadDeviceModel>>): Presentation => {
+    let cover = makeScreenTexture(source);
+    let duo: ReturnType<typeof createDuoScene>;
+    try {
+      duo = createDuoScene(model.asset, { 1: cover, 3: texture });
+    } catch (cause) {
+      cover.dispose();
+      model.dispose();
+      throw cause;
+    }
+    const mesh = (name: string) => {
+      const found = model.asset.getObjectByName(name);
+      return found instanceof Mesh ? found : null;
+    };
+    const coverMesh = mesh("cover-display");
+    const innerMeshes = [mesh("inner-display-left"), mesh("inner-display-right")].filter(
+      (found) => found !== null,
+    );
+    duo.setAngle(180);
+    duo.root.updateMatrixWorld(true);
+    const aspect = (box: Box3) => {
+      const size = box.getSize(new Vector3());
+      return size.x > 0 && size.y > 0 ? size.x / size.y : 1;
+    };
+    const inner = new Box3();
+    for (const found of innerMeshes) inner.union(new Box3().setFromObject(found));
+    const coverAspect = coverMesh ? aspect(new Box3().setFromObject(coverMesh)) : 1;
+    return {
+      root: duo.root,
+      screenAspect: aspect(inner),
+      setLid: (degrees) => duo.setAngle(Math.min(180, (degrees * 180) / LAPTOP_LID_DEFAULT)),
+      setTexture: (next) => {
+        for (const found of innerMeshes) (found.material as MeshBasicMaterial).map = next;
+        const previous = cover;
+        cover = makeScreenTexture(source);
+        if (coverMesh) (coverMesh.material as MeshBasicMaterial).map = cover;
+        previous.dispose();
+      },
+      fitExtra: (sourceAspect) => {
+        const crop = coverCrop(sourceAspect, coverAspect);
+        cover.repeat.set(crop.repeat[0], crop.repeat[1]);
+        cover.offset.set(crop.offset[0], crop.offset[1]);
+      },
+      dispose: () => {
+        duo.dispose();
+        cover.dispose();
+        model.dispose();
+      },
+    };
+  };
 
   const setDevice = (device: ShowcaseDevice) => {
     if (recording) {
@@ -241,6 +308,7 @@ export function createShowcaseRenderer(options: {
       return;
     }
     const request = ++deviceRequest;
+    deviceReady = Promise.resolve();
     if (device.kind === "laptop") {
       const laptop = createLaptopScene(texture, LAPTOP_PROFILES[device.id], {
         finish: device.finish ?? "dark",
@@ -254,12 +322,13 @@ export function createShowcaseRenderer(options: {
       });
       return;
     }
-    install(proceduralHandset(device.kind));
+    install(proceduralHandset(device.kind === "foldable" ? "phone" : device.kind));
     if (!device.model) return;
     const controller = new AbortController();
-    loadDeviceModel(device.model, controller.signal)
+    deviceReady = loadDeviceModel(device.model, controller.signal)
       .then((model) => {
         if (disposed || request !== deviceRequest) return model.dispose();
+        if (device.kind === "foldable") return install(foldable(model));
         const layout = handsetLayout(device.kind);
         let screenAspect = layout.aspect;
         model.asset.traverse((object) => {
@@ -282,7 +351,8 @@ export function createShowcaseRenderer(options: {
       .catch((cause: unknown) => {
         // The procedural body is already showing; a missing GLB only costs realism.
         if (!disposed && request === deviceRequest) options.onError?.(cause);
-      });
+      })
+      .then(() => undefined);
   };
 
   /**
@@ -566,6 +636,13 @@ export function createShowcaseRenderer(options: {
       readonly signal?: AbortSignal;
       readonly onProgress?: (fraction: number) => void;
     }): Promise<{ blob: Blob; extension: "mp4" | "webm" }> {
+      if (recording) throw new Error("A showcase recording is already running.");
+      // Never export the placeholder body, or swap in the photoreal model partway through.
+      let ready: Promise<void>;
+      do {
+        ready = deviceReady;
+        await ready;
+      } while (ready !== deviceReady);
       if (recording) throw new Error("A showcase recording is already running.");
       pause();
       recording = { width: output.width, height: output.height };

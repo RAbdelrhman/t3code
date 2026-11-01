@@ -259,6 +259,7 @@ export const DeviceShowcaseDevice = Schema.Literals([
   "macbook-pro-14",
   "dell-xps-14",
   "iphone-18-pro",
+  "iphone-duo",
   "ipad-pro-13-m5",
 ]);
 export const DeviceShowcaseShot = Schema.Literals([
@@ -282,7 +283,7 @@ export const DeviceShowcaseScript = Schema.Struct({
   shots: Schema.optional(
     Schema.Array(DeviceShowcaseShot).check(Schema.isMinLength(1), Schema.isMaxLength(8)).annotate({
       description:
-        "Camera shots, cut in this order. lid-open is laptop-only. Default lid-open then push-in.",
+        "Camera shots, cut in this order. lid-open opens a laptop or unfolds the iPhone Duo; phones and tablets skip it. Default lid-open then push-in.",
     }),
   ),
   backdrop: Schema.optional(Schema.Literals(["graphite", "paper", "dusk", "ember"])),
