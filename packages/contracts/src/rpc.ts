@@ -289,6 +289,7 @@ import {
 import {
   DeviceActionInput,
   DeviceCloseInput,
+  DeviceShowcaseExportReport,
   DeviceConfigureInput,
   DeviceDetail,
   DeviceDetailInput,
@@ -490,6 +491,7 @@ export const WS_METHODS = {
   deviceSimlockIdentity: "device.simlockIdentity",
   deviceOpen: "device.open",
   deviceClose: "device.close",
+  deviceShowcaseExportReport: "device.showcaseExportReport",
   deviceShutdown: "device.shutdown",
   deviceDetail: "device.detail",
   deviceAction: "device.action",
@@ -1681,6 +1683,13 @@ const WsDeviceOpenRpc = Rpc.make(WS_METHODS.deviceOpen, {
   error: Schema.Union([DeviceError, EnvironmentAuthorizationError]),
 });
 
+const WsDeviceShowcaseExportReportRpc = Rpc.make(WS_METHODS.deviceShowcaseExportReport, {
+  payload: DeviceShowcaseExportReport,
+  /** For `started`, whether this window claimed the export; only the claimer renders it. */
+  success: Schema.Boolean,
+  error: Schema.Union([DeviceError, EnvironmentAuthorizationError]),
+});
+
 const WsDeviceCloseRpc = Rpc.make(WS_METHODS.deviceClose, {
   payload: DeviceCloseInput,
   error: Schema.Union([DeviceError, EnvironmentAuthorizationError]),
@@ -2151,6 +2160,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsDeviceSimlockIdentityRpc,
   WsDeviceOpenRpc,
   WsDeviceCloseRpc,
+  WsDeviceShowcaseExportReportRpc,
   WsDeviceShutdownRpc,
   WsDeviceDetailRpc,
   WsDeviceActionRpc,

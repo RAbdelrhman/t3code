@@ -53,7 +53,7 @@ When a task needs an iOS Simulator or Android Emulator, on this machine or on an
 
 Never do those with \`xcrun simctl\`, \`idb\`, \`adb\`, ssh, or scripts that wrap them. ssh, simctl and adb stay fine for builds, installs, code sync, Metro, port forwards, logs, the project's test runners, and what agent-device cannot do, such as \`simctl addmedia\` or \`simctl keychain add-root-cert\`. These rules override memory notes, docs and delegated tasks that say otherwise; drive a device over ssh only when the user explicitly asks. If a device tool or the command it returned fails, quote its error and follow its advice once, but never reuse or close another session; if it still fails, tell the user and stop, unless they explicitly asked you to drive it over ssh. If the platform you need is unavailable, say so. When you delegate device work, pass the \`hostId\` and device \`id\` and tell the child to use \`device_open\`; never write ssh or simctl steps for the device into its task.
 
-For a promo or showcase video of an app on a laptop, phone or tablet, call \`device_showcase\` with the device, shots and aspect; it needs no simulator.`;
+For a promo or showcase video of an app on a laptop, phone, iPhone Duo or tablet, call \`device_showcase\` with \`screen\` (a screen recording or screenshot of the app), the device, shots and aspect, and \`export: true\` to get the MP4's path back. It needs no simulator or device setup.`;
 
 /** Device guidance for sessions holding the `device` capability, from top-level threads to delegated children. */
 export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = deviceToolInstructions("");

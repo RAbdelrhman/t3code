@@ -6,13 +6,15 @@ export type ShowcaseScript = DeviceShowcaseScript;
 
 interface ShowcaseRequest {
   readonly script: ShowcaseScript;
+  /** The server's id for an agent's request, which an export reports back against. */
+  readonly requestId?: number;
   /** Changes on every open, so reopening with the same script still reapplies it. */
   readonly nonce: number;
 }
 
 interface ShowcaseStoreState {
   readonly byThreadKey: Readonly<Record<string, ShowcaseRequest>>;
-  readonly open: (threadKey: string, script?: ShowcaseScript) => void;
+  readonly open: (threadKey: string, script?: ShowcaseScript, requestId?: number) => void;
   readonly close: (threadKey: string) => void;
 }
 
@@ -21,9 +23,12 @@ let nonce = 0;
 /** Which threads show the Showcase studio in their Device panel. */
 export const useShowcaseStore = create<ShowcaseStoreState>()((set) => ({
   byThreadKey: {},
-  open: (threadKey, script = {}) =>
+  open: (threadKey, script = {}, requestId) =>
     set((state) => ({
-      byThreadKey: { ...state.byThreadKey, [threadKey]: { script, nonce: ++nonce } },
+      byThreadKey: {
+        ...state.byThreadKey,
+        [threadKey]: { script, nonce: ++nonce, ...(requestId === undefined ? {} : { requestId }) },
+      },
     })),
   close: (threadKey) =>
     set((state) => {

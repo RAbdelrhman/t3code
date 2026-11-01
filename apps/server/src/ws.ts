@@ -3063,6 +3063,8 @@ export const layerWsRpc = (
             Effect.flatMap((workspaceRoot) => deviceService.open(input, { workspaceRoot })),
           ),
         [WS_METHODS.deviceClose]: (input) => deviceService.close(input),
+        [WS_METHODS.deviceShowcaseExportReport]: (input) =>
+          deviceService.reportShowcaseExport(input),
         [WS_METHODS.deviceShutdown]: (input) => deviceService.shutdown(input),
         [WS_METHODS.deviceDetail]: (input) => deviceService.detail(input),
         [WS_METHODS.deviceAction]: (input) => deviceService.action(input),

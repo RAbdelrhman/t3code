@@ -9,6 +9,8 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpSchema, McpServer } from "effect/ai";
@@ -136,10 +138,9 @@ const layerDeviceServiceMock = Layer.mock(DeviceService.DeviceService)({
     ),
   screenshot: () => Effect.succeed({ device, png }),
   close: () => Effect.void,
-  showcase: (id, script) =>
-    Effect.sync(() => {
-      showcaseRequests.push({ threadId: id, script });
-    }),
+  showcase: (id, script) => Effect.sync(() => showcaseRequests.push({ threadId: id, script })),
+  awaitShowcaseExport: () => Effect.succeed("pending-export-mp4"),
+  reportShowcaseExport: () => Effect.succeed(true),
   testHost: () => Effect.die("not used"),
   // As for an EAS device, agent-device knows the device by a different id than T3.
   agentTarget: () =>
@@ -157,8 +158,10 @@ const layerTest = McpHttpServer.layerDeviceToolkit.pipe(
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(layerDeviceServiceMock),
   Layer.provide(layerProjectsMock),
-  Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-device-toolkit-test-" })),
-  Layer.provide(NodeServices.layer),
+  Layer.provideMerge(
+    ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-device-toolkit-test-" }),
+  ),
+  Layer.provideMerge(NodeServices.layer),
 );
 
 it.effect("opens the showcase studio for the calling thread and rejects unknown shots", () =>
@@ -186,6 +189,56 @@ it.effect("opens the showcase studio for the calling thread and rejects unknown 
       expect(Exit.isFailure(yield* Effect.exit(call({ shots: ["dolly-zoom"] })))).toBe(true);
       expect(Exit.isFailure(yield* Effect.exit(call({ shots: [] })))).toBe(true);
       expect(showcaseRequests).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("works without device access, checks the screen file and returns the exported clip", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      // No "device" capability: Showcase needs no simulator, so any thread may call it.
+      const call = (args: Record<string, unknown>) =>
+        server
+          .callTool({ name: "device_showcase", arguments: args })
+          .pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, invocation([])),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+      showcaseRequests.length = 0;
+
+      const missing = yield* call({ screen: path.join(config.stateDir, "missing.mp4") });
+      expect(missing.isError).toBe(true);
+      expect(JSON.stringify(missing.content)).toContain("No screen file");
+      const wrongType = yield* call({ screen: path.join(config.stateDir, "notes.txt") });
+      expect(JSON.stringify(wrongType.content)).toContain("screen must be a video");
+      expect(showcaseRequests).toHaveLength(0);
+
+      const screen = path.join(config.stateDir, "app.mp4");
+      yield* fileSystem.writeFileString(screen, "recording");
+      // The mock reports the client's upload as this pending attachment.
+      yield* fileSystem.makeDirectory(config.attachmentsDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(config.attachmentsDir, "pending-export-mp4.mp4"),
+        "clip",
+      );
+      const exported = yield* call({ device: "iphone-duo", screen, export: true });
+      expect(exported.isError).toBe(false);
+      expect(showcaseRequests).toEqual([
+        { threadId, script: { device: "iphone-duo", screen, export: true } },
+      ]);
+      const video = (exported.structuredContent as { video: { path: string; sizeBytes: number } })
+        .video;
+      expect(video.path.startsWith(path.join(config.stateDir, "showcase"))).toBe(true);
+      expect(video.sizeBytes).toBe(4);
+      expect(yield* fileSystem.readFileString(video.path)).toBe("clip");
+      // The clip left the swept pending-attachment area.
+      expect(
+        yield* fileSystem.exists(path.join(config.attachmentsDir, "pending-export-mp4.mp4")),
+      ).toBe(false);
     }),
   ).pipe(Effect.provide(layerTest)),
 );
